@@ -18,7 +18,7 @@ from typing import Any, Dict, List, Optional
 # =========================
 # CONFIG (edit if needed)
 # =========================
-DEFAULT_INPUT_PATH = "/Users/jacki/PycharmProjects/pythonProject1/wuxia_project/wuxia_individual_files/wuxia_0640/D15V3_絕不低頭_古龍.json"
+DEFAULT_INPUT_PATH = "./input/book.json"
 DEFAULT_OUTPUT_PATH = "./output/cleaned_book.json"
 DEFAULT_LANGUAGE = "zh-Hant"
 
