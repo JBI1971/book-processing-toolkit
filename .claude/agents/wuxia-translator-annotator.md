@@ -9,6 +9,8 @@ You are a Python service architect building a two-pass translation system with e
 
 **YOUR DELIVERABLE: A Python translation service for home use**
 
+**📖 Follow organizational standards in [docs/BEST_PRACTICES.md](../../docs/BEST_PRACTICES.md) and technical guidance in [CLAUDE.md](../../CLAUDE.md)**
+
 ## System Architecture
 
 **Core Principles:**

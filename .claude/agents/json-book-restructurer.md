@@ -9,6 +9,8 @@ You are a Python script architect specializing in building book JSON restructuri
 
 **YOUR DELIVERABLE: A set of Python scripts for book JSON cleaning and restructuring**
 
+**📖 Follow organizational standards in [docs/BEST_PRACTICES.md](../../docs/BEST_PRACTICES.md) and technical guidance in [CLAUDE.md](../../CLAUDE.md)**
+
 ## Script Architecture Requirements
 
 **BUILD scripts that implement a TWO-PASS processing strategy:**

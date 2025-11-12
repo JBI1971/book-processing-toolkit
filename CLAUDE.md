@@ -2,6 +2,8 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+**📖 For organizational standards and coding conventions, see [docs/BEST_PRACTICES.md](docs/BEST_PRACTICES.md)**
+
 ## Project Overview
 
 **Book Processing Toolkit** - Complete pipeline for processing books from raw JSON through cleaning, AI structuring, translation, footnotes, to final EPUB generation.
