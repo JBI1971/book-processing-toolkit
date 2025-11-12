@@ -13,6 +13,7 @@ venv/
 .env
 .env.*
 env.yml
+env_creds.yml
 
 # IDE
 .DS_Store
@@ -57,3 +58,6 @@ works.csv
 
 # Symlinks (created during setup, not in git)
 translation_data
+
+# Autonomous test logs
+autonomous_test_logs/
