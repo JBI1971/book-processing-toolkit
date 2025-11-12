@@ -1,0 +1,110 @@
+.structure-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+}
+
+.structure-hint {
+  background: #e3f2fd;
+  border-left: 4px solid #2196f3;
+  padding: 1rem;
+  border-radius: 4px;
+  color: #1565c0;
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+.droppable-section {
+  background: var(--card-bg);
+  border: 2px dashed var(--border-color);
+  border-radius: 12px;
+  padding: 1.5rem;
+  transition: all 0.3s ease;
+  min-height: 200px;
+}
+
+.droppable-section.drag-over {
+  border-color: var(--primary-color);
+  background: #f0f7ff;
+  box-shadow: 0 4px 12px rgba(74, 144, 226, 0.2);
+}
+
+.section-header {
+  margin-bottom: 1.5rem;
+  padding-bottom: 1rem;
+  border-bottom: 2px solid var(--border-color);
+}
+
+.section-title-group {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 0.5rem;
+}
+
+.section-title-group h3 {
+  margin: 0;
+  font-size: 1.3rem;
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.section-count {
+  background: var(--primary-color);
+  color: white;
+  padding: 0.25rem 0.75rem;
+  border-radius: 12px;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.section-description {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  font-style: italic;
+}
+
+.section-content {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  min-height: 100px;
+}
+
+.empty-section {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 150px;
+  border: 2px dashed var(--border-color);
+  border-radius: 8px;
+  color: var(--text-secondary);
+  font-style: italic;
+  text-align: center;
+  padding: 2rem;
+  background: var(--bg-color);
+}
+
+.drag-overlay {
+  opacity: 0.9;
+  transform: rotate(5deg);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+}
+
+.drag-overlay .chapter-card {
+  cursor: grabbing !important;
+}
+
+/* Special styling for different section types */
+.droppable-section:has([id^="section-front_matter"]) .section-header {
+  border-bottom-color: #ff9800;
+}
+
+.droppable-section:has([id^="section-body"]) .section-header {
+  border-bottom-color: #4caf50;
+}
+
+.droppable-section:has([id^="section-back_matter"]) .section-header {
+  border-bottom-color: #9c27b0;
+}

@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from utils.catalog_metadata import CatalogMetadataExtractor, WorkMetadata
 from utils.chapter_sequence_validator import ChineseChapterSequenceValidator, SequenceIssue
+from utils.volume_aware_validator import VolumeAwareValidator, VolumeValidationIssue
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -29,9 +30,11 @@ class SanityCheckResult:
     has_warnings: bool
     metadata: WorkMetadata = None
     sequence_issues: List[SequenceIssue] = field(default_factory=list)
+    volume_issues: List[VolumeValidationIssue] = field(default_factory=list)
     data_issues: List[str] = field(default_factory=list)
     warnings: List[str] = field(default_factory=list)
     summary: str = ""
+    volume_context: Dict = field(default_factory=dict)
 
 
 class BookSanityChecker:
@@ -44,8 +47,10 @@ class BookSanityChecker:
         Args:
             catalog_path: Path to wuxia_catalog.db
         """
+        self.catalog_path = catalog_path
         self.catalog_extractor = CatalogMetadataExtractor(catalog_path)
         self.sequence_validator = ChineseChapterSequenceValidator()
+        self.volume_validator = VolumeAwareValidator(catalog_path)
 
     def check(
         self,
@@ -131,8 +136,42 @@ class BookSanityChecker:
             else:
                 logger.info(f"  ✓ Chapter sequence looks good")
 
-            # Get sequence summary
-            summary = self.sequence_validator.get_chapter_sequence_summary(chapters)
+            # Check 3b: Volume-aware validation (for multi-volume works)
+            if result.metadata and result.metadata.work_number and result.metadata.volume:
+                try:
+                    logger.info(f"[3b] Volume-aware validation...")
+
+                    # Get chapter range from sequence summary
+                    summary = self.sequence_validator.get_chapter_sequence_summary(chapters)
+
+                    if summary['numbered_chapters'] > 0:
+                        vol_is_valid, vol_issues, vol_context = self.volume_validator.validate_with_context(
+                            work_number=result.metadata.work_number,
+                            volume=result.metadata.volume,
+                            actual_chapter_start=summary['sequence_start'],
+                            actual_chapter_end=summary['sequence_end'],
+                            actual_chapter_count=summary['numbered_chapters']
+                        )
+
+                        result.volume_issues = vol_issues
+                        result.volume_context = vol_context
+
+                        if vol_context.get('is_multi_volume'):
+                            logger.info(f"  ✓ Multi-volume work ({vol_context['total_volumes']} volumes)")
+                            if vol_context.get('is_continuation'):
+                                logger.info(f"  ℹ️  Continuation volume {vol_context['current_volume_number']}")
+
+                        # Log volume issues
+                        if vol_issues:
+                            for issue in vol_issues:
+                                icon = "ℹ"
+                                logger.info(f"  {icon} [{issue.severity.upper()}] {issue.message}")
+                except Exception as e:
+                    logger.warning(f"  ⚠️  Volume-aware validation failed: {e}")
+
+            # Get sequence summary (or reuse from above)
+            if 'summary' not in locals():
+                summary = self.sequence_validator.get_chapter_sequence_summary(chapters)
 
             # Build detailed report
             report_parts = []

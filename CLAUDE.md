@@ -154,13 +154,29 @@ CLEANED JSON (discrete blocks + metadata)
    → Support Chinese numerals including 廿/卅/卌
    → Fuzzy matching for variants
    ↓
-[Stage 6] utils/toc_alignment_validator.py
-   → Verify TOC structure and chapter consistency
-   → OpenAI-powered semantic TOC/chapter title matching
-   → Detect mismatches, typos, numbering errors
-   → Batch processing (20 pairs per request)
-   → Confidence scores and suggested fixes
-   → Requires OPENAI_API_KEY
+[Stage 6] Comprehensive Validation (3 validators)
+   → batch_process_books.py orchestrates multiple validators:
+
+   A. processors/structure_validator.py
+      - AI-powered chapter classification (front_matter, body, back_matter)
+      - Detects special sections (preface, afterword, appendix)
+      - Quality scoring
+
+   B. utils/toc_chapter_validator.py
+      - Extracts actual headings from content_blocks
+      - OpenAI-powered semantic TOC/chapter title matching
+      - Detects missing chapters, title mismatches
+      - Handles Chinese numeral variations (廿/卅/卌)
+
+   C. utils/toc_body_count_validator.py [NEW]
+      - Validates TOC entry count matches body chapter count
+      - Identifies specific chapters missing from TOC
+      - Detects extra TOC entries not in body
+      - Fast, deterministic (no API calls)
+
+   → All validators run in parallel
+   → Results merged with error/warning categorization
+   → Requires OPENAI_API_KEY for validators A & B
    ↓
 VALIDATED JSON (ready for downstream processing)
    ↓
@@ -365,9 +381,61 @@ result = fixer.fix_chapter_alignment_in_file('cleaned_book.json')
 - Full character set including 廿/卅/卌
 - Regex patterns updated in 2 locations (lines ~175 and ~362)
 
+### TOC/Body Count Validator (utils/toc_body_count_validator.py)
+
+**Purpose**: Validate that TOC entries match body chapters by count and chapter numbers
+
+**What It Detects**:
+- Missing chapters from TOC (chapters in body but not in TOC)
+- Extra TOC entries (TOC references non-existent chapters)
+- Count mismatches between TOC and body
+
+**Classes**:
+- `CountMismatchIssue` - Represents a chapter missing from or extra in TOC
+- `CountValidationResult` - Complete validation result with issues
+- `TOCBodyCountValidator` - Main validator
+
+**Key Methods**:
+```python
+def validate_toc_body_alignment(self, cleaned_json: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Simplified validation that returns:
+    - valid: bool
+    - toc_count: int
+    - body_count: int
+    - missing_from_toc: list of chapter numbers in body but not TOC
+    - extra_in_toc: list of chapter numbers in TOC but not body
+    - missing_chapters: list of dicts with {chapter_num, title, id}
+    """
+```
+
+**Usage**:
+```python
+from utils.toc_body_count_validator import validate_toc_body_alignment
+
+result = validate_toc_body_alignment(cleaned_json)
+if not result['valid']:
+    for ch in result['missing_chapters']:
+        print(f"Missing: Ch {ch['chapter_num']} - {ch['title']}")
+```
+
+**CLI Usage**:
+```bash
+# Full validation with detailed report
+python utils/toc_body_count_validator.py input.json
+
+# Simplified alignment check
+python utils/toc_body_count_validator.py input.json --use-alignment
+
+# Save report
+python utils/toc_body_count_validator.py input.json --save-report
+```
+
+**Integration**: Automatically runs as part of Stage 6 validation in batch processing pipeline.
+
 ### TOC Alignment Validator (utils/toc_alignment_validator.py)
 
-**Purpose**: OpenAI-powered semantic TOC/chapter title validation (Stage 6)
+**Purpose**: OpenAI-powered semantic TOC/chapter title validation (basic, legacy)
 
 **Validation Method**:
 - Batch processing (20 TOC/chapter pairs per API call)
@@ -398,6 +466,103 @@ result = validator.validate(cleaned_json)
 - `matched_pairs` - Number of successful matches
 - `confidence_score` - Percentage (0-100%)
 - `issues` - List of AlignmentIssue objects with severity
+
+### Comprehensive TOC/Chapter Validator (utils/toc_chapter_validator.py)
+
+**Purpose**: Advanced validation that extracts actual chapter headings from content_blocks (Stage 6 - enhanced)
+
+**Key Innovation**: Unlike the basic validator above, this validator extracts the **actual heading from content_blocks** to detect when:
+- Book metadata is incorrectly treated as a chapter
+- First chapter heading is buried in content
+- TOC lists chapters that don't exist in the body
+- Chapter topology doesn't match TOC structure
+
+**Validation Workflow**:
+1. Extract TOC entries from `front_matter.toc`
+2. Extract **actual chapter headings** from each chapter's `content_blocks` (first heading-type block)
+3. Parse chapter numbers from actual headings (第N章/回)
+4. Compare TOC entries to actual chapter headings
+5. Detect missing chapters, sequence gaps, duplicates
+6. Use OpenAI for semantic validation of ambiguous mismatches
+
+**Classes**:
+- `TOCChapterValidator` - Main validator with heading extraction
+- `ChapterHeading` - Extracted heading data (chapter_index, actual_heading, chapter_number)
+- `TOCEntry` - TOC entry data
+- `AlignmentIssue` - Issue found during validation
+- `ValidationReport` - Complete report with detailed metrics
+
+**Issue Types**:
+- `missing_toc` - No TOC found in front_matter
+- `missing_chapters` - No chapters found in body
+- `count_mismatch` - TOC count ≠ chapter count
+- `missing_chapter` - TOC references chapter that doesn't exist (e.g., 第一章 in TOC but body starts at 第二章)
+- `duplicate_chapter_number` - Same chapter number appears multiple times
+- `title_mismatch` - TOC title doesn't match actual heading
+- `chapter_not_in_toc` - Chapter exists but not in TOC
+- `sequence_gap` - Missing chapter numbers in sequence
+
+**Usage**:
+```python
+from utils.toc_chapter_validator import TOCChapterValidator
+
+validator = TOCChapterValidator(use_ai=True)
+report = validator.validate(cleaned_json)
+
+# Report includes:
+# - toc_entries: List of TOC entries
+# - chapter_headings: List of extracted headings with actual chapter numbers
+# - issues: Detailed list of problems
+# - confidence_score: Match percentage
+# - is_valid: True if no errors
+
+# Save detailed report
+report = validator.validate_file('cleaned_book.json', save_report=True)
+# Generates: cleaned_book_validation_report.json
+```
+
+**Report Metrics**:
+- `toc_count` - Number of TOC entries
+- `chapter_count` - Number of body chapters
+- `matched_count` - Successfully matched pairs
+- `confidence_score` - Match percentage (0-100%)
+- `is_valid` - True if no errors
+- `summary` - Human-readable summary
+- `issues` - List with severity, type, message, details, suggested_fix
+
+**AI Validation**:
+- Only used for ambiguous title mismatches
+- Batch processing (10 pairs per call)
+- Model: gpt-4o-mini, temperature: 0.1
+- Classifies mismatches as: real_mismatch, minor_difference, transcription_error
+- Provides suggested fixes for typos
+
+**Example Output**:
+```
+TOC/CHAPTER ALIGNMENT VALIDATION REPORT
+Summary: TOC Entries: 20 | Body Chapters: 19 | Matched: 19 | Confidence: 95.0% | Errors: 1
+Valid: ✗ No
+
+TOC ENTRIES (20):
+   1. 第一章　神秘的年輕人
+   2. 第二章　從天而降的救星
+   ...
+
+BODY CHAPTERS (19):
+   2. 第二章　從天而降的救星 [body_chapter]
+   3. 第三章　大變忽然來 [body_chapter]
+   ...
+
+ISSUES FOUND (2):
+✗ [ERROR] missing_chapter
+   TOC references chapter 1 '神秘的年輕人' but it's not in body
+   💡 Suggested fix: Check if chapter is missing from source EPUB or was incorrectly filtered
+```
+
+**Integration**:
+- Used in `batch_process_books.py` as part of Stage 6 validation
+- CLI available: `scripts/validate_toc_chapter_alignment.py`
+- Generates detailed JSON reports for debugging
 
 ### Content Structurer (processors/content_structurer.py)
 

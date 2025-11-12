@@ -90,6 +90,9 @@ class ChineseChapterSequenceValidator:
             十一 -> 11
             二十 -> 20
             二十一 -> 21
+            二一 -> 21 (two-digit format: 2*10 + 1)
+            三五 -> 35 (two-digit format: 3*10 + 5)
+            四十 -> 40
             三十 -> 30
             一百 -> 100
             一百零一 -> 101
@@ -132,7 +135,29 @@ class ChineseChapterSequenceValidator:
                 if rest in CHINESE_NUMBERS:
                     return 30 + CHINESE_NUMBERS[rest]
 
-            # Handle compound numbers
+            # Handle 卌 (40) at start
+            if text.startswith('卌'):
+                if len(text) == 1:
+                    return 40
+                # 卌一 = 41, 卌二 = 42, etc.
+                rest = text[1:]
+                if rest in CHINESE_NUMBERS:
+                    return 40 + CHINESE_NUMBERS[rest]
+
+            # NEW: Handle two-digit format (二一 = 21, 三五 = 35, etc.)
+            # This format is used in some books where each digit is written separately
+            # Pattern: [一-九][一-九] without 十/百/千 multipliers
+            if len(text) == 2:
+                first_char = text[0]
+                second_char = text[1]
+
+                # Check if both are single digits (1-9)
+                if (first_char in CHINESE_NUMBERS and second_char in CHINESE_NUMBERS and
+                    CHINESE_NUMBERS[first_char] <= 9 and CHINESE_NUMBERS[second_char] <= 9):
+                    # This is the two-digit format: AB means A*10 + B
+                    return CHINESE_NUMBERS[first_char] * 10 + CHINESE_NUMBERS[second_char]
+
+            # Handle compound numbers with position multipliers
             result = 0
             temp = 0
             multiplier = 1

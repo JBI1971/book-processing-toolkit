@@ -1,19 +1,27 @@
 #!/usr/bin/env python3
 """
-Batch Process Books - Test pipeline on entire dataset
+Batch Process Books - Complete 7-stage pipeline with parallel processing
 
 Process multiple book files through the complete pipeline:
 1. Topology analysis
 2. Sanity check (metadata lookup, sequence validation)
-3. JSON cleaning
+3. JSON cleaning (with enhanced title page classification)
 4. Chapter alignment fix
 5. TOC restructuring (intelligent matching fixes most issues)
-6. TOC alignment validation (OpenAI - verify restructuring)
-7. Structure validation (chapter classification)
-8. Final validation check
+6. Comprehensive validation:
+   - TOC/Chapter alignment (extracts actual headings from content_blocks)
+   - Structure validation (chapter classification)
+   - Detects missing chapters, mismatches, sequence gaps
+   - OpenAI semantic validation for ambiguous cases
+7. Missing chapter search (TOC-based)
+8. Auto-fix (systematic offsets, title page removal, TOC regeneration)
 
-Note: TOC restructuring includes intelligent fuzzy matching that fixes
-most alignment issues automatically. Validation happens after to verify.
+Features:
+- Parallel processing with configurable workers (default: 1)
+- Thread-safe result tracking and issue categorization
+- Enhanced title page detection (《》, publisher info, metadata)
+- Comprehensive missing chapter search with fuzzy matching
+- Automatic fixes for common issues
 
 Logs all issues, warnings, and errors for pipeline adjustment.
 """
@@ -28,13 +36,25 @@ from datetime import datetime
 from typing import Dict, Any, List, Tuple
 import subprocess
 import traceback
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from multiprocessing import cpu_count
+import threading
 
-# Setup logging
+# Setup logging with thread safety
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+_log_lock = threading.Lock()
 
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
+
+# Load environment credentials (including OpenAI API key)
+from utils.load_env_creds import load_env_credentials
+try:
+    load_env_credentials(override=True)  # Force load from env_creds.yml
+    logger.info("✓ Loaded credentials from env_creds.yml")
+except Exception as e:
+    logger.warning(f"Could not load env_creds.yml: {e}. Using environment variables.")
 
 from utils.topology_analyzer import TopologyAnalyzer
 from utils.fix_chapter_alignment import ChapterAlignmentFixer
@@ -43,14 +63,34 @@ from utils.sanity_checker import BookSanityChecker
 from utils.catalog_metadata import get_volume_label
 
 
+def _process_file_worker(args):
+    """Worker function for parallel processing (must be picklable)"""
+    folder, json_file, output_dir, log_dir, catalog_path, dry_run = args
+
+    # Create a new processor instance for this worker
+    # Note: Each worker gets its own processor to avoid shared state issues
+    worker_processor = BatchProcessor(
+        output_dir=output_dir,
+        log_dir=log_dir,
+        catalog_path=catalog_path,
+        dry_run=dry_run,
+        workers=1  # Worker always runs serially
+    )
+
+    # Process the file
+    result = worker_processor.process_file(folder, json_file)
+    return result
+
+
 class BatchProcessor:
     """Process multiple books through the pipeline with logging"""
 
-    def __init__(self, output_dir: Path, log_dir: Path, catalog_path: str, dry_run: bool = False):
+    def __init__(self, output_dir: Path, log_dir: Path, catalog_path: str, dry_run: bool = False, workers: int = 1):
         self.output_dir = Path(output_dir)
         self.log_dir = Path(log_dir)
         self.catalog_path = catalog_path
         self.dry_run = dry_run
+        self.workers = workers
 
         # Create directories
         if not dry_run:
@@ -65,7 +105,8 @@ class BatchProcessor:
             logger.warning(f"Could not initialize sanity checker: {e}")
             self.sanity_checker = None
 
-        # Results tracking
+        # Results tracking (thread-safe with lock)
+        self._results_lock = threading.Lock()
         self.results = {
             'total': 0,
             'succeeded': 0,
@@ -77,12 +118,15 @@ class BatchProcessor:
                 'cleaning': {'success': 0, 'failed': 0},
                 'alignment': {'success': 0, 'failed': 0},
                 'toc': {'success': 0, 'failed': 0},
-                'validation': {'success': 0, 'failed': 0}
+                'validation': {'success': 0, 'failed': 0},
+                'missing_chapters': {'success': 0, 'failed': 0},
+                'autofix': {'success': 0, 'failed': 0}
             },
             'files': []
         }
 
-        # Issue tracking
+        # Issue tracking (thread-safe with lock)
+        self._issues_lock = threading.Lock()
         self.issues = {
             'no_book_json': [],
             'multiple_book_jsons': [],
@@ -143,6 +187,23 @@ class BatchProcessor:
 
         return book_files
 
+    def _update_results(self, updates: Dict[str, Any]):
+        """Thread-safe update to results"""
+        with self._results_lock:
+            for key, value in updates.items():
+                if key in ['succeeded', 'failed', 'skipped']:
+                    self.results[key] += value
+                elif key == 'files':
+                    self.results['files'].append(value)
+                elif key == 'stage_stats':
+                    stage, stat_type, increment = value
+                    self.results['stage_stats'][stage][stat_type] += increment
+
+    def _add_issue(self, issue_type: str, issue_data: Any):
+        """Thread-safe add issue"""
+        with self._issues_lock:
+            self.issues[issue_type].append(issue_data)
+
     def process_file(self, folder: Path, json_file: Path) -> Dict[str, Any]:
         """Process a single book file through the pipeline"""
         folder_name = folder.name
@@ -155,9 +216,10 @@ class BatchProcessor:
             'stats': {}
         }
 
-        print(f"\n{'='*80}")
-        print(f"Processing: {folder_name}/{json_file.name}")
-        print(f"{'='*80}")
+        with _log_lock:
+            print(f"\n{'='*80}")
+            print(f"Processing: {folder_name}/{json_file.name}")
+            print(f"{'='*80}")
 
         try:
             # Stage 1: Topology Analysis
@@ -168,49 +230,53 @@ class BatchProcessor:
             result['stats']['max_depth'] = topology_result.get('max_depth', 0)
 
             if not topology_result['success']:
-                self.results['stage_stats']['topology']['failed'] += 1
+                self._update_results({'stage_stats': ('topology', 'failed', 1)})
 
                 # Check if this is a skip (non-book file) vs error
                 if 'skip_reason' in topology_result:
                     result['status'] = 'SKIPPED'
                     result['skip_reason'] = topology_result['skip_reason']
-                    self.results['skipped'] += 1
-                    print(f"\n⊘ Skipped: {topology_result['error']}")
+                    self._update_results({'skipped': 1})
+                    with _log_lock:
+                        print(f"\n⊘ Skipped: {topology_result['error']}")
                     return result
                 else:
                     # Real error
-                    self.issues['topology_errors'].append({
+                    self._add_issue('topology_errors', {
                         'file': f"{folder_name}/{json_file.name}",
                         'error': topology_result['error']
                     })
                     result['status'] = 'FAILED'
-                    print(f"\n✗ Failed: {topology_result['error']}")
+                    with _log_lock:
+                        print(f"\n✗ Failed: {topology_result['error']}")
                     return result
 
-            self.results['stage_stats']['topology']['success'] += 1
+            self._update_results({'stage_stats': ('topology', 'success', 1)})
 
             # Stage 1.5: Sanity Check
             print(f"[1.5/6] Sanity Check...")
             sanity_result = self._stage_sanity_check(json_file, folder_name)
             result['stages']['sanity_check'] = sanity_result
 
+            # ALWAYS store metadata, even if sanity check failed
+            # Metadata lookup can succeed even when other checks fail
+            if sanity_result.get('metadata'):
+                result['metadata'] = sanity_result['metadata']
+
             if sanity_result['success']:
-                self.results['stage_stats']['sanity_check']['success'] += 1
-                # Store metadata for later use
-                if sanity_result.get('metadata'):
-                    result['metadata'] = sanity_result['metadata']
+                self._update_results({'stage_stats': ('sanity_check', 'success', 1)})
                 # Track sequence issues
                 if sanity_result.get('sequence_issues'):
                     for issue in sanity_result['sequence_issues']:
                         if issue['severity'] == 'error':
-                            self.issues['sequence_gaps'].append({
+                            self._add_issue('sequence_gaps', {
                                 'file': f"{folder_name}/{json_file.name}",
                                 'issue': issue['message']
                             })
                         result['warnings'].append(issue['message'])
             else:
-                self.results['stage_stats']['sanity_check']['failed'] += 1
-                self.issues['sanity_check_errors'].append({
+                self._update_results({'stage_stats': ('sanity_check', 'failed', 1)})
+                self._add_issue('sanity_check_errors', {
                     'file': f"{folder_name}/{json_file.name}",
                     'error': sanity_result.get('error', 'Unknown error')
                 })
@@ -223,13 +289,13 @@ class BatchProcessor:
             result['stages']['cleaning'] = cleaning_result
 
             if not cleaning_result['success']:
-                self.results['stage_stats']['cleaning']['failed'] += 1
-                self.issues['cleaning_errors'].append({
+                self._update_results({'stage_stats': ('cleaning', 'failed', 1)})
+                self._add_issue('cleaning_errors', {
                     'file': f"{folder_name}/{json_file.name}",
                     'error': cleaning_result['error']
                 })
                 return result
-            self.results['stage_stats']['cleaning']['success'] += 1
+            self._update_results({'stage_stats': ('cleaning', 'success', 1)})
 
             cleaned_path = Path(cleaning_result['output_path'])
             result['stats']['chapters'] = cleaning_result.get('chapters', 0)
@@ -241,14 +307,14 @@ class BatchProcessor:
             result['stages']['alignment'] = alignment_result
 
             if not alignment_result['success']:
-                self.results['stage_stats']['alignment']['failed'] += 1
-                self.issues['alignment_errors'].append({
+                self._update_results({'stage_stats': ('alignment', 'failed', 1)})
+                self._add_issue('alignment_errors', {
                     'file': f"{folder_name}/{json_file.name}",
                     'error': alignment_result['error']
                 })
                 # Continue anyway
             else:
-                self.results['stage_stats']['alignment']['success'] += 1
+                self._update_results({'stage_stats': ('alignment', 'success', 1)})
                 if alignment_result.get('fixes', 0) > 0:
                     result['warnings'].append(f"Fixed {alignment_result['fixes']} chapter alignments")
 
@@ -258,43 +324,70 @@ class BatchProcessor:
             result['stages']['toc'] = toc_result
 
             if not toc_result['success']:
-                self.results['stage_stats']['toc']['failed'] += 1
-                self.issues['toc_errors'].append({
+                self._update_results({'stage_stats': ('toc', 'failed', 1)})
+                self._add_issue('toc_errors', {
                     'file': f"{folder_name}/{json_file.name}",
                     'error': toc_result['error']
                 })
                 # Continue anyway
             else:
-                self.results['stage_stats']['toc']['success'] += 1
+                self._update_results({'stage_stats': ('toc', 'success', 1)})
                 if toc_result.get('warnings'):
                     result['warnings'].extend(toc_result['warnings'])
 
             # Stage 5: Combined Validation (TOC alignment + Structure)
-            print(f"[5/6] Validation (TOC + Structure)...")
+            print(f"[5/7] Validation (TOC + Structure)...")
             validation_result = self._stage_validate(cleaned_path)
             result['stages']['validation'] = validation_result
 
             if validation_result['success']:
-                self.results['stage_stats']['validation']['success'] += 1
-                result['status'] = 'SUCCESS'
-                self.results['succeeded'] += 1
+                self._update_results({'stage_stats': ('validation', 'success', 1)})
                 if validation_result.get('warnings'):
                     result['warnings'].extend(validation_result['warnings'])
             else:
-                self.results['stage_stats']['validation']['failed'] += 1
-                result['status'] = 'COMPLETED_WITH_ISSUES'
+                self._update_results({'stage_stats': ('validation', 'failed', 1)})
                 result['issues'].extend(validation_result.get('issues', []))
                 if validation_result.get('warnings'):
                     result['warnings'].extend(validation_result['warnings'])
 
-            print(f"\n✓ Completed: {result['status']}")
+            # Stage 6: Missing Chapter Search
+            print(f"[6/7] Missing Chapter Search...")
+            missing_result = self._stage_missing_chapters(cleaned_path, json_file)
+            result['stages']['missing_chapters'] = missing_result
+
+            if missing_result['success']:
+                result['stats']['missing_chapters'] = missing_result.get('missing_count', 0)
+                result['stats']['found_elsewhere'] = missing_result.get('found_elsewhere', 0)
+                if missing_result.get('missing_count', 0) > 0:
+                    result['warnings'].append(f"{missing_result['missing_count']} chapters missing from body")
+
+            # Stage 7: Auto-Fix (optional)
+            print(f"[7/7] Auto-Fix...")
+            autofix_result = self._stage_autofix(cleaned_path)
+            result['stages']['autofix'] = autofix_result
+
+            if autofix_result['success']:
+                result['stats']['fixes_applied'] = autofix_result.get('fixes_applied', 0)
+                if autofix_result.get('fixes_applied', 0) > 0:
+                    result['warnings'].append(f"{autofix_result['fixes_applied']} automatic fixes applied")
+
+            # Final status
+            if validation_result['success'] and missing_result.get('missing_count', 0) == 0:
+                result['status'] = 'SUCCESS'
+                self._update_results({'succeeded': 1})
+            else:
+                result['status'] = 'COMPLETED_WITH_ISSUES'
+
+            with _log_lock:
+                print(f"\n✓ Completed: {result['status']}")
 
         except Exception as e:
             result['status'] = 'FAILED'
             result['error'] = str(e)
             result['traceback'] = traceback.format_exc()
-            self.results['failed'] += 1
-            print(f"\n✗ Failed: {e}")
+            self._update_results({'failed': 1})
+            with _log_lock:
+                print(f"\n✗ Failed: {e}")
 
         return result
 
@@ -463,11 +556,13 @@ class BatchProcessor:
 
         Uses multiple validators:
         1. StructureValidator - chapter classification and structure
-        2. TOCAlignmentValidator - TOC/chapter title matching
+        2. TOCChapterValidator - comprehensive TOC/chapter heading alignment
+        3. TOCBodyCountValidator - TOC/body chapter count alignment
         """
         try:
             from processors.structure_validator import StructureValidator
-            from utils.toc_alignment_validator import TOCAlignmentValidator
+            from utils.toc_chapter_validator import TOCChapterValidator
+            from utils.toc_body_count_validator import TOCBodyCountValidator
 
             with open(cleaned_path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
@@ -476,9 +571,13 @@ class BatchProcessor:
             struct_validator = StructureValidator()
             struct_result = struct_validator.validate(data)
 
-            # Run TOC alignment validation
-            toc_validator = TOCAlignmentValidator()
+            # Run comprehensive TOC/chapter validation (extracts actual headings)
+            toc_validator = TOCChapterValidator(use_ai=True)
             toc_result = toc_validator.validate(data)
+
+            # Run TOC/body count validation
+            count_validator = TOCBodyCountValidator()
+            count_result = count_validator.validate_toc_body_alignment(data)
 
             # Merge results
             issues = [
@@ -491,6 +590,22 @@ class BatchProcessor:
                 for issue in toc_result.issues
                 if issue.severity == "error"
             ])
+
+            # Add TOC/body count issues
+            if not count_result['valid']:
+                if count_result.get('error'):
+                    issues.append(f"TOC/Body count error: {count_result['error']}")
+                elif count_result.get('missing_from_toc'):
+                    missing_chapters = count_result.get('missing_chapters', [])
+                    for ch in missing_chapters:
+                        issues.append(
+                            f"Chapter {ch['chapter_num']} missing from TOC: {ch['title']} ({ch['id']})"
+                        )
+                elif count_result.get('extra_in_toc'):
+                    issues.append(
+                        f"TOC has {len(count_result['extra_in_toc'])} entries not in body: "
+                        f"chapters {count_result['extra_in_toc']}"
+                    )
 
             warnings = [
                 issue.message
@@ -515,8 +630,12 @@ class BatchProcessor:
                 if issue.severity == "info"
             ])
 
-            # Overall success if both validators pass
-            overall_success = struct_result.is_valid and toc_result.is_valid
+            # Overall success if all validators pass
+            overall_success = (
+                struct_result.is_valid and
+                toc_result.is_valid and
+                count_result['valid']
+            )
 
             return {
                 'success': overall_success,
@@ -525,7 +644,13 @@ class BatchProcessor:
                 'toc_coverage': struct_result.toc_coverage,
                 'toc_alignment': toc_result.confidence_score,
                 'quality_score': struct_result.structure_quality,
-                'classifications': len(struct_result.classifications)
+                'classifications': len(struct_result.classifications),
+                'toc_count': toc_result.toc_count,
+                'chapter_count': toc_result.chapter_count,
+                'matched_count': toc_result.matched_count,
+                'toc_body_count_match': count_result['valid'],
+                'missing_from_toc': count_result.get('missing_from_toc', []),
+                'extra_in_toc': count_result.get('extra_in_toc', [])
             }
 
         except Exception as e:
@@ -719,6 +844,68 @@ class BatchProcessor:
                 'fixes_applied': 0
             }
 
+    def _stage_missing_chapters(self, cleaned_path: Path, source_json_path: Path) -> Dict[str, Any]:
+        """Search for missing chapters"""
+        try:
+            from utils.find_missing_chapters import MissingChapterFinder
+
+            with open(cleaned_path, 'r', encoding='utf-8') as f:
+                cleaned_data = json.load(f)
+
+            # Load source JSON
+            with open(source_json_path, 'r', encoding='utf-8') as f:
+                source_data = json.load(f)
+
+            finder = MissingChapterFinder(similarity_threshold=0.6)
+            search_result = finder.find_missing(cleaned_data)
+
+            return {
+                'success': True,
+                'missing_count': search_result.missing_count,
+                'found_elsewhere': search_result.found_elsewhere_count,
+                'truly_missing': search_result.truly_missing_count,
+                'summary': search_result.summary
+            }
+
+        except Exception as e:
+            logger.warning(f"Missing chapter search failed: {e}")
+            return {
+                'success': False,
+                'error': str(e),
+                'missing_count': 0
+            }
+
+    def _stage_autofix(self, cleaned_path: Path) -> Dict[str, Any]:
+        """Run automatic fixes"""
+        try:
+            from utils.auto_fix_toc_alignment import TOCAlignmentAutoFixer
+
+            if self.dry_run:
+                return {'success': True, 'fixes_applied': 0, 'skipped': 'dry_run'}
+
+            fixer = TOCAlignmentAutoFixer(dry_run=False)
+            result = fixer.fix_file(str(cleaned_path))
+
+            return {
+                'success': result['success'],
+                'fixes_applied': result['fixes_applied'],
+                'fixes': [
+                    {
+                        'type': fix.fix_type,
+                        'description': fix.description
+                    }
+                    for fix in result.get('fixes', [])
+                ]
+            }
+
+        except Exception as e:
+            logger.warning(f"Auto-fix failed: {e}")
+            return {
+                'success': False,
+                'error': str(e),
+                'fixes_applied': 0
+            }
+
     def generate_report(self, output_file: Path):
         """Generate detailed processing report"""
         report = {
@@ -800,8 +987,21 @@ def main():
         default=True,
         help='Continue processing if a file fails'
     )
+    parser.add_argument(
+        '--workers',
+        type=int,
+        default=1,
+        help='Number of parallel workers (default: 1, 0 = CPU count - 1)'
+    )
 
     args = parser.parse_args()
+
+    # Determine worker count
+    workers = args.workers
+    if workers == 0:
+        workers = max(1, cpu_count() - 1)
+    elif workers < 0:
+        workers = 1
 
     # Setup
     source_dir = Path(args.source_dir)
@@ -822,12 +1022,13 @@ def main():
     print(f"  Output: {output_dir}")
     print(f"  Logs: {log_dir}")
     print(f"  Catalog: {catalog_path}")
+    print(f"  Workers: {workers} parallel")
     if args.dry_run:
         print(f"  Mode: DRY RUN")
     print()
 
     # Create processor
-    processor = BatchProcessor(output_dir, log_dir, catalog_path, dry_run=args.dry_run)
+    processor = BatchProcessor(output_dir, log_dir, catalog_path, dry_run=args.dry_run, workers=workers)
 
     # Find files
     print(f"🔍 Finding book files...")
@@ -846,10 +1047,43 @@ def main():
     processor.results['total'] = len(book_files)
     start_time = time.time()
 
-    for i, (folder, json_file) in enumerate(book_files, 1):
-        print(f"\n[{i}/{len(book_files)}]", end=' ')
-        result = processor.process_file(folder, json_file)
-        processor.results['files'].append(result)
+    if workers == 1:
+        # Serial processing
+        for i, (folder, json_file) in enumerate(book_files, 1):
+            print(f"\n[{i}/{len(book_files)}]", end=' ')
+            result = processor.process_file(folder, json_file)
+            processor._update_results({'files': result})
+    else:
+        # Parallel processing
+        print(f"\n🔄 Processing {len(book_files)} files with {workers} workers...")
+        completed = 0
+
+        # Prepare worker arguments
+        worker_args = [
+            (folder, json_file, output_dir, log_dir, catalog_path, args.dry_run)
+            for folder, json_file in book_files
+        ]
+
+        with ProcessPoolExecutor(max_workers=workers) as executor:
+            # Submit all tasks
+            future_to_file = {
+                executor.submit(_process_file_worker, args): (args[0], args[1])
+                for args in worker_args
+            }
+
+            # Collect results as they complete
+            for future in as_completed(future_to_file):
+                folder, json_file = future_to_file[future]
+                completed += 1
+                try:
+                    result = future.result()
+                    processor._update_results({'files': result})
+                    status_symbol = "✓" if result.get('status') in ['SUCCESS', 'SKIPPED'] else "✗"
+                    with _log_lock:
+                        print(f"{status_symbol} [{completed}/{len(book_files)}] {folder.name}/{json_file.name}")
+                except Exception as e:
+                    with _log_lock:
+                        print(f"✗ [{completed}/{len(book_files)}] {folder.name}/{json_file.name}: {e}")
 
     elapsed = time.time() - start_time
 

@@ -1,0 +1,36 @@
+# Server process tracking
+.server_pids
+
+# Logs
+logs/
+*.log
+
+# Python
+backend/venv/
+backend/__pycache__/
+backend/**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Environment
+backend/.env
+frontend/.env
+frontend/.env.local
+
+# Node
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db

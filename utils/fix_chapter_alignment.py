@@ -19,6 +19,12 @@ import sys
 from pathlib import Path
 from typing import Dict, Any, List, Tuple
 
+# Import enhanced chapter parser for accurate ordinal extraction
+try:
+    from utils.enhanced_chapter_parser import EnhancedChapterParser
+except ImportError:
+    from enhanced_chapter_parser import EnhancedChapterParser
+
 
 class ChapterAlignmentFixer:
     """Fix chapter title/content alignment issues"""
@@ -46,6 +52,7 @@ class ChapterAlignmentFixer:
     def __init__(self, dry_run: bool = False):
         self.dry_run = dry_run
         self.fixes = []
+        self.chapter_parser = EnhancedChapterParser()
 
     def fix_file(self, input_path: str, output_path: str = None) -> Dict[str, Any]:
         """Fix chapter alignment in a cleaned JSON file"""
@@ -61,9 +68,20 @@ class ChapterAlignmentFixer:
         )
         fixed_count = len(data['structure']['body']['chapters'])
 
-        # Renormalize ordinals after all fixes (should be 1, 2, 3, ...)
-        for i, chapter in enumerate(data['structure']['body']['chapters'], start=1):
-            chapter['ordinal'] = i
+        # Extract actual chapter numbers from titles (preserves multi-volume numbering)
+        # For continuation volumes, this keeps chapter 31, 32, 33... instead of resetting to 1, 2, 3...
+        total_chapters = len(data['structure']['body']['chapters'])
+        for i, chapter in enumerate(data['structure']['body']['chapters']):
+            title = chapter.get('title', '')
+
+            # Extract chapter number from title using enhanced parser
+            result = self.chapter_parser.extract_with_fallback(title, i, total_chapters)
+
+            if result.number is not None:
+                chapter['ordinal'] = result.number
+            else:
+                # Fallback: use position (1-based)
+                chapter['ordinal'] = i + 1
 
         # Report
         print(f"\n📊 ALIGNMENT FIX SUMMARY")
@@ -97,6 +115,13 @@ class ChapterAlignmentFixer:
         fixed_chapters = []
 
         for i, chapter in enumerate(chapters):
+            # Check if this is a metadata heading (typically first chapter)
+            if self._is_metadata_chapter(chapter):
+                self.fixes.append(
+                    f"Removed metadata chapter: '{chapter['title'][:60]}...'"
+                )
+                continue  # Skip this chapter entirely
+
             # Check if this chapter contains a real chapter heading
             heading_found = self._find_chapter_heading(chapter)
 
@@ -129,11 +154,78 @@ class ChapterAlignmentFixer:
 
         return fixed_chapters
 
+    def _is_metadata_chapter(self, chapter: Dict) -> bool:
+        """Check if an entire chapter is just metadata (title page, etc.)"""
+        title = chapter.get('title', '').strip()
+
+        # Check title itself
+        if self._is_metadata_heading(title):
+            return True
+
+        # Check first few content blocks
+        content_blocks = chapter.get('content_blocks', [])
+        if not content_blocks:
+            return False
+
+        # If first 3 blocks are all metadata/decorators, it's likely a metadata chapter
+        metadata_count = 0
+        for block in content_blocks[:3]:
+            content = block.get('content', '').strip()
+            if self._is_metadata_heading(content) or self._is_decorator(content):
+                metadata_count += 1
+
+        # If majority (2/3) of first blocks are metadata, skip this chapter
+        return metadata_count >= 2
+
     def _matches_chapter_pattern(self, title: str) -> bool:
         """Check if title matches a chapter heading pattern"""
         for pattern in self.CHAPTER_PATTERNS:
             if re.search(pattern, title):
                 return True
+        return False
+
+    def _is_metadata_heading(self, content: str) -> bool:
+        """
+        Check if content is a metadata heading (book title, author info, etc.)
+
+        These are typically found at the start of books and should not be
+        treated as chapter 1.
+
+        Patterns:
+        - Contains book title markers: 《》
+        - Contains author delimiters: ／ (slash), 、(comma)
+        - Contains publication date patterns
+        - Matches typical metadata formats
+        """
+        content = content.strip()
+
+        # Check for book title markers
+        if '《' in content or '》' in content:
+            return True
+
+        # Check for author delimiter patterns (e.g., "Title／Author", "Title、Author")
+        if '／' in content or ('、' in content and len(content) < 50):
+            return True
+
+        # Check for publication date patterns
+        date_patterns = [
+            r'[一二三四五六七八九十○〇]+年[一二三四五六七八九十○〇]+月',  # Chinese date
+            r'\d{4}年\d{1,2}月',  # Numeric date
+            r'(民國|西元)\d+年',  # ROC/Western year
+        ]
+        for pattern in date_patterns:
+            if re.search(pattern, content):
+                return True
+
+        # Check for common metadata keywords
+        metadata_keywords = [
+            '出版', '版權', '著作權', 'ISBN', '印刷', '發行',
+            'Publisher', 'Copyright', 'All Rights Reserved',
+            '好讀出版', '遠流出版', '聯經出版'
+        ]
+        if any(kw in content for kw in metadata_keywords):
+            return True
+
         return False
 
     def _is_decorator(self, content: str) -> bool:
@@ -217,18 +309,23 @@ class ChapterAlignmentFixer:
         """Split a chapter with multiple headings into separate chapters"""
         split_chapters = []
         content_blocks = chapter.get('content_blocks', [])
+        original_ordinal = chapter.get('ordinal', 0)
+
+        # Split part identifiers: a, b, c, d, ...
+        split_parts = 'abcdefghijklmnopqrstuvwxyz'
 
         for i, (block_idx, heading) in enumerate(headings):
             # Determine slice range
             start_idx = block_idx
             end_idx = headings[i+1][0] if i+1 < len(headings) else len(content_blocks)
 
-            # Create new chapter
+            # Create new chapter with split tracking
             new_chapter = {
                 'id': f"{chapter['id']}_split_{i+1}",
                 'title': heading,
                 'title_en': "",
-                'ordinal': chapter.get('ordinal', 0) + i,
+                'ordinal': original_ordinal,  # Keep original chapter number
+                'split_part': split_parts[i] if i < len(split_parts) else str(i),  # a, b, c, ...
                 'content_blocks': content_blocks[start_idx:end_idx]
             }
             split_chapters.append(new_chapter)

@@ -185,6 +185,43 @@ class StructureValidator:
         for toc in toc_data:
             toc_entries.extend(toc.get("entries", []))
 
+        # First check: TOC count vs body count
+        toc_count = len(toc_entries)
+        body_count = len(chapters)
+
+        if toc_count != body_count:
+            # Get chapter numbers to identify specific mismatches
+            toc_chapter_numbers = {entry.get("chapter_number", 0) for entry in toc_entries}
+            body_chapter_ordinals = {ch.get("ordinal", 0) for ch in chapters}
+
+            missing_from_toc = body_chapter_ordinals - toc_chapter_numbers
+            extra_in_toc = toc_chapter_numbers - body_chapter_ordinals
+
+            if missing_from_toc:
+                # Find the actual chapters missing
+                missing_chapters = [ch for ch in chapters if ch.get("ordinal", 0) in missing_from_toc]
+                missing_titles = [ch.get("title", "Unknown") for ch in missing_chapters[:3]]
+                message = f"TOC count ({toc_count}) != Body count ({body_count}). Missing from TOC: {len(missing_from_toc)} chapters"
+                if missing_titles:
+                    message += f" - {', '.join(missing_titles)}"
+                    if len(missing_chapters) > 3:
+                        message += f" and {len(missing_chapters) - 3} more"
+
+                result.issues.append(ValidationIssue(
+                    severity="error",
+                    category="toc_count_mismatch",
+                    message=message,
+                    suggestion="Add missing chapters to TOC"
+                ))
+
+            if extra_in_toc:
+                result.issues.append(ValidationIssue(
+                    severity="error",
+                    category="toc_count_mismatch",
+                    message=f"TOC has {len(extra_in_toc)} entries not found in body chapters",
+                    suggestion="Remove invalid TOC entries or add missing body chapters"
+                ))
+
         # Get chapter refs from TOC
         toc_refs = {entry.get("chapter_ref") for entry in toc_entries}
         chapter_ids = {ch.get("id") for ch in chapters}
@@ -195,7 +232,8 @@ class StructureValidator:
 
         result.toc_coverage = coverage
 
-        if missing:
+        if missing and toc_count == body_count:
+            # Only report this if counts match but refs don't
             result.issues.append(ValidationIssue(
                 severity="warning",
                 category="toc_coverage",

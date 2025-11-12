@@ -34,6 +34,17 @@ node_modules/
 output/
 *.log
 
+# Test files and temporary reports
+test_*.py
+run_*.py
+*_REPORT.md
+*_SUMMARY.md
+*_RESULTS.md
+*_FIX_*.md
+*_VALIDATION_*.md
+review_output/
+logs/
+
 # Database files (data should not be in git)
 *.db
 *.db-journal
