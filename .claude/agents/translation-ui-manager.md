@@ -137,9 +137,20 @@ You will design and implement a comprehensive web-based translation management i
 5. **Status and Monitoring**
    - Real-time progress indicators
    - Stage-by-stage pipeline status (cleaning → structuring → translating → validating)
+   - **WIP Tracking Display** - Show incremental saves at each processing stage
+   - **Stage-specific logs viewer** - Browse logs from `{log_dir}/{filename}_stage_{N}_{stage_name}.json`
    - Error reporting with suggested fixes
    - Success metrics (completion rate, quality scores)
    - Notification system (desktop notifications, email alerts)
+
+6. **Incremental WIP Viewer** (NEW - CRITICAL)
+   - Display WIP files from each processing stage
+   - Browse stage directories: `wip/stage_1_translation/`, `wip/stage_2_editing/`, etc.
+   - Side-by-side comparison between stages
+   - Download WIP files from any stage
+   - Rollback to previous stage if needed
+   - Visual timeline showing progress through stages
+   - Access stage-specific logs for debugging
 
 ## Integration Points
 
@@ -160,7 +171,43 @@ Wrap these existing CLI tools in API endpoints:
 Respect the existing directory structure:
 - Source files: `/Users/jacki/project_files/translation_project/wuxia_individual_files/{directory_name}/`
 - Output configuration: User-selectable, default to organized by work_number
-- Logs: Centralized logging directory with job-specific subdirectories
+- **WIP directory**: `{wip_dir}/stage_{N}_{stage_name}/` for incremental saves
+- **Logs**: `{log_dir}/{filename}_stage_{N}_{stage_name}.json` for stage-specific logs
+- Centralized logging directory with job-specific subdirectories
+
+### API Endpoints for WIP Tracking
+
+**Required Backend API Endpoints**:
+
+```python
+# List all WIP stages for a specific job/file
+GET /api/jobs/{job_id}/wip/stages
+Response: [
+  {"stage_num": 1, "stage_name": "translation", "timestamp": "...", "file_size": 1024},
+  {"stage_num": 2, "stage_name": "editing", "timestamp": "...", "file_size": 1056}
+]
+
+# Get WIP file content from specific stage
+GET /api/jobs/{job_id}/wip/stage/{stage_num}
+Response: { JSON content from that stage }
+
+# Download WIP file from specific stage
+GET /api/jobs/{job_id}/wip/stage/{stage_num}/download
+Response: File download
+
+# Get stage-specific log
+GET /api/jobs/{job_id}/logs/stage/{stage_num}
+Response: { stage log JSON }
+
+# Compare two stages side-by-side
+GET /api/jobs/{job_id}/wip/compare?from_stage={N}&to_stage={M}
+Response: { diff between stages }
+
+# Rollback to previous stage (copy WIP to active)
+POST /api/jobs/{job_id}/rollback
+Body: { "target_stage": 2 }
+Response: { success: true, new_job_id: "..." }
+```
 
 ## Error Handling and User Experience
 

@@ -61,7 +61,7 @@ Be scrupulous and precise. Double-check accuracy before responding."""
 
         # Call OpenAI API
         response = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model="gpt-4.1-nano",
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": request.text}

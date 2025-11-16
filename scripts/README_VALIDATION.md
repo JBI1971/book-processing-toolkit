@@ -51,7 +51,7 @@ python scripts/validate_toc_chapter_alignment.py --no-ai --no-report cleaned_boo
 ### 4. AI Semantic Validation (Optional)
 - Only for ambiguous title mismatches
 - Batch processing (10 pairs per call)
-- Model: gpt-4o-mini, temperature: 0.1
+- Model: gpt-4.1-nano, temperature: 0.1
 - Classifies: `real_mismatch`, `minor_difference`, `transcription_error`
 
 ## Example Output

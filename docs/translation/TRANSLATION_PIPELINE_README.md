@@ -76,7 +76,7 @@ Edit `/Users/jacki/PycharmProjects/agentic_test_project/processors/translation_c
 @dataclass
 class TranslationConfig:
     # API Configuration
-    model: str = "gpt-4o-mini"
+    model: str = "gpt-4.1-nano"
     temperature: float = 0.3
     max_retries: int = 3
     timeout: int = 120
@@ -298,7 +298,7 @@ Options:
   --resume              Resume from checkpoint
   --dry-run             Preview without writing files
   --output-dir PATH     Custom output directory
-  --model MODEL         OpenAI model (default: gpt-4o-mini)
+  --model MODEL         OpenAI model (default: gpt-4.1-nano)
   --max-workers N       Concurrent chapters (default: 3)
   --verbose             Enable debug logging
 

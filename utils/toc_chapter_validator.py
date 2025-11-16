@@ -83,7 +83,7 @@ class ValidationReport:
 class TOCChapterValidator:
     """Comprehensive TOC/Chapter alignment validator"""
 
-    def __init__(self, use_ai: bool = True, model: str = "gpt-4o-mini", temperature: float = 0.1):
+    def __init__(self, use_ai: bool = True, model: str = "gpt-4.1-nano", temperature: float = 0.1):
         """
         Initialize validator.
 

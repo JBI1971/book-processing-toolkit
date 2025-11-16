@@ -13,7 +13,6 @@ import sys
 
 # Add project root to path to import utilities
 project_root = Path(__file__).parent.parent.parent.parent
-sys.path.insert(0, str(project_root))
 
 from utils.chapter_sequence_validator import ChineseChapterSequenceValidator, SequenceIssue
 from utils.toc_alignment_validator import TOCAlignmentValidator, AlignmentResult

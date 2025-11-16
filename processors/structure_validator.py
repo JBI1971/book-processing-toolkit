@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 # CONFIGURATION
 # =============================================================================
 
-DEFAULT_MODEL = "gpt-4o-mini"
+DEFAULT_MODEL = "gpt-4.1-nano"
 DEFAULT_TEMPERATURE = 0.3
 DEFAULT_TIMEOUT = 60
 

@@ -31,7 +31,6 @@ except ImportError:
 
 # Catalog metadata extractor
 import sys
-sys.path.insert(0, str(Path(__file__).parent.parent))
 from utils.catalog_metadata import CatalogMetadataExtractor
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -661,7 +660,7 @@ Respond in JSON format:
 }}"""
 
         response = openai_client.chat.completions.create(
-            model="gpt-4o-mini",
+            model="gpt-4.1-nano",
             messages=[
                 {"role": "system", "content": "You are a Chinese literature structure analyst."},
                 {"role": "user", "content": prompt}

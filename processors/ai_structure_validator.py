@@ -17,13 +17,13 @@ class AIStructureValidator:
     - Section type classification
     """
 
-    def __init__(self, api_key: str, model: str = "gpt-4o-mini", temperature: float = 0.1):
+    def __init__(self, api_key: str, model: str = "gpt-4.1-nano", temperature: float = 0.1):
         """
         Initialize AI validator.
 
         Args:
             api_key: OpenAI API key
-            model: Model to use (default: gpt-4o-mini for cost efficiency)
+            model: Model to use (default: gpt-4.1-nano for cost efficiency)
             temperature: Low temperature for consistency (default: 0.1)
         """
         self.client = OpenAI(api_key=api_key)

@@ -13,8 +13,6 @@ from typing import List, Dict, Optional, Any, Tuple
 from dataclasses import dataclass
 import json
 
-# Add parent directory to path for imports
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from utils.catalog_metadata import CatalogMetadataExtractor, WorkMetadata
 

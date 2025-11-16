@@ -27,29 +27,40 @@ import uvicorn
 
 # Add project root to path
 PROJECT_ROOT = Path(__file__).parent.parent.parent.parent
-sys.path.insert(0, str(PROJECT_ROOT))
 
 from processors.translation_config import TranslationConfig
 from processors.volume_manager import VolumeManager
 from scripts.translate_work import WorkTranslationOrchestrator
 
-# Configuration
-CATALOG_DB_PATH = os.getenv(
-    'CATALOG_DB_PATH',
-    '/Users/jacki/project_files/translation_project/wuxia_catalog.db'
-)
-SOURCE_DIR = os.getenv(
-    'SOURCE_DIR',
-    '/Users/jacki/project_files/translation_project/wuxia_individual_files'
-)
-OUTPUT_DIR = os.getenv(
-    'OUTPUT_DIR',
-    '/Users/jacki/project_files/translation_project/translations'
-)
-LOG_DIR = os.getenv(
-    'LOG_DIR',
-    './logs'
-)
+# Configuration - Load from environment or use EnvironmentConfig defaults
+try:
+    from utils.environment_config import get_or_create_env_config
+    env_config = get_or_create_env_config()
+
+    # Use WUXIA_* environment variables (consistent with project standards)
+    # Fall back to EnvironmentConfig defaults
+    CATALOG_DB_PATH = os.getenv('WUXIA_CATALOG_PATH', str(env_config.catalog_path))
+    SOURCE_DIR = os.getenv('WUXIA_SOURCE_DIR', str(env_config.source_dir))
+    OUTPUT_DIR = os.getenv('WUXIA_OUTPUT_DIR', str(env_config.output_dir))
+    LOG_DIR = os.getenv('WUXIA_LOG_DIR', str(env_config.log_dir))
+except ImportError:
+    # Fallback if environment_config not available
+    CATALOG_DB_PATH = os.getenv(
+        'WUXIA_CATALOG_PATH',
+        '/Users/jacki/project_files/translation_project/wuxia_catalog.db'
+    )
+    SOURCE_DIR = os.getenv(
+        'WUXIA_SOURCE_DIR',
+        '/Users/jacki/project_files/translation_project/cleaned/COMPLETE_ALL_BOOKS'
+    )
+    OUTPUT_DIR = os.getenv(
+        'WUXIA_OUTPUT_DIR',
+        './translation_data/outputs'
+    )
+    LOG_DIR = os.getenv(
+        'WUXIA_LOG_DIR',
+        './logs/translation'
+    )
 
 
 # Pydantic Models
@@ -85,10 +96,43 @@ class WorkDetail(BaseModel):
 class TranslationJobCreate(BaseModel):
     """Create a new translation job"""
     work_numbers: List[str]
-    model: str = "gpt-4o-mini"
+    model: str = "gpt-4.1-nano"
     temperature: float = 0.3
     max_retries: int = 3
     output_dir: Optional[str] = None
+
+
+class DetailedProgress(BaseModel):
+    """Detailed progress information"""
+    current_volume: Optional[str] = None
+    current_chapter: Optional[str] = None
+    total_chapters: int = 0
+    completed_chapters: int = 0
+    total_blocks: int = 0
+    completed_blocks: int = 0
+    current_chapter_blocks: int = 0
+    current_chapter_completed: int = 0
+
+    @property
+    def chapter_progress_pct(self) -> float:
+        """Calculate chapter-level progress percentage"""
+        if self.total_chapters == 0:
+            return 0.0
+        return (self.completed_chapters / self.total_chapters) * 100
+
+    @property
+    def block_progress_pct(self) -> float:
+        """Calculate block-level progress percentage"""
+        if self.total_blocks == 0:
+            return 0.0
+        return (self.completed_blocks / self.total_blocks) * 100
+
+    @property
+    def current_chapter_pct(self) -> float:
+        """Calculate current chapter progress percentage"""
+        if self.current_chapter_blocks == 0:
+            return 0.0
+        return (self.current_chapter_completed / self.current_chapter_blocks) * 100
 
 
 class TranslationJobStatus(BaseModel):
@@ -96,7 +140,7 @@ class TranslationJobStatus(BaseModel):
     job_id: str
     work_numbers: List[str]
     status: str  # queued, running, paused, completed, failed
-    progress: float = 0.0  # 0-100
+    progress: float = 0.0  # 0-100 (work-level progress)
     current_work: Optional[str] = None
     completed_works: List[str] = []
     failed_works: List[str] = []
@@ -104,6 +148,7 @@ class TranslationJobStatus(BaseModel):
     end_time: Optional[str] = None
     error_message: Optional[str] = None
     statistics: Dict[str, Any] = {}
+    detailed_progress: Optional[DetailedProgress] = None
 
 
 class ConnectionManager:
@@ -171,6 +216,14 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Include workflow router
+try:
+    from web_ui.translation_manager.backend.api.workflow import router as workflow_router
+    app.include_router(workflow_router)
+except ImportError as e:
+    logger.warning(f"Could not load workflow router: {e}")
+    # Continue without workflow endpoints for now
 
 
 # Database helpers
@@ -338,6 +391,103 @@ def get_work_detail(work_number: str) -> WorkDetail:
     )
 
 
+def get_detailed_progress(work_number: str, volume: Optional[str] = None) -> Optional[DetailedProgress]:
+    """
+    Get detailed translation progress for a work/volume.
+
+    Reads checkpoint files and output JSON to calculate:
+    - Chapter-level progress
+    - Block-level progress
+    - Current chapter progress
+    """
+    # Check for checkpoint file
+    checkpoint_dir = Path(LOG_DIR) / "checkpoints"
+    if volume:
+        checkpoint_file = checkpoint_dir / f"{work_number}_{volume}_checkpoint.json"
+    else:
+        checkpoint_file = checkpoint_dir / f"{work_number}_checkpoint.json"
+
+    if checkpoint_file.exists():
+        try:
+            with open(checkpoint_file, 'r', encoding='utf-8') as f:
+                checkpoint_data = json.load(f)
+
+            # Extract progress from checkpoint
+            total_chapters = checkpoint_data.get('total_chapters', 0)
+            completed_chapters = checkpoint_data.get('completed_chapters', 0)
+
+            # Get current chapter info
+            current_chapter_info = checkpoint_data.get('current_chapter', {})
+            current_chapter = current_chapter_info.get('chapter_id')
+            current_chapter_blocks = current_chapter_info.get('total_blocks', 0)
+            current_chapter_completed = current_chapter_info.get('completed_blocks', 0)
+
+            # Calculate total blocks from all chapters
+            chapter_progress = checkpoint_data.get('chapter_progress', [])
+            total_blocks = sum(ch.get('total_blocks', 0) for ch in chapter_progress)
+            completed_blocks = sum(ch.get('completed_blocks', 0) for ch in chapter_progress)
+
+            return DetailedProgress(
+                current_volume=volume,
+                current_chapter=current_chapter,
+                total_chapters=total_chapters,
+                completed_chapters=completed_chapters,
+                total_blocks=total_blocks,
+                completed_blocks=completed_blocks,
+                current_chapter_blocks=current_chapter_blocks,
+                current_chapter_completed=current_chapter_completed
+            )
+        except Exception as e:
+            logger.error(f"Error reading checkpoint for {work_number}: {e}")
+
+    # Fall back to checking output files
+    output_dir = Path(OUTPUT_DIR) / work_number
+    if output_dir.exists():
+        # Look for translated JSON files
+        if volume:
+            translated_file = output_dir / f"translated_{work_number}_{volume}.json"
+        else:
+            translated_file = output_dir / f"translated_{work_number}.json"
+
+        if translated_file.exists():
+            try:
+                with open(translated_file, 'r', encoding='utf-8') as f:
+                    translated_data = json.load(f)
+
+                # Count completed chapters/blocks
+                chapters = translated_data.get('structure', {}).get('body', {}).get('chapters', [])
+                total_chapters = len(chapters)
+                completed_chapters = 0
+                total_blocks = 0
+                completed_blocks = 0
+
+                for chapter in chapters:
+                    blocks = chapter.get('content_blocks', [])
+                    total_blocks += len(blocks)
+
+                    # Check if chapter is translated (has translated_annotated_content)
+                    translated_count = sum(
+                        1 for block in blocks
+                        if block.get('translated_annotated_content') is not None
+                    )
+                    completed_blocks += translated_count
+
+                    if translated_count == len(blocks):
+                        completed_chapters += 1
+
+                return DetailedProgress(
+                    current_volume=volume,
+                    total_chapters=total_chapters,
+                    completed_chapters=completed_chapters,
+                    total_blocks=total_blocks,
+                    completed_blocks=completed_blocks
+                )
+            except Exception as e:
+                logger.error(f"Error reading translated file for {work_number}: {e}")
+
+    return None
+
+
 # Job processing
 async def job_processor():
     """Background task that processes translation jobs from the queue"""
@@ -386,13 +536,37 @@ async def job_processor():
             print(f"Error in job processor: {e}")
 
 
+async def periodic_progress_update(job_id: str, work_number: str, manager: ConnectionManager):
+    """
+    Periodically broadcast detailed progress updates for an active translation.
+    Runs until cancelled.
+    """
+    while True:
+        try:
+            await asyncio.sleep(5)  # Update every 5 seconds
+
+            # Get current progress
+            progress = get_detailed_progress(work_number)
+            if progress:
+                await manager.broadcast({
+                    'type': 'progress_update',
+                    'job_id': job_id,
+                    'work_number': work_number,
+                    'detailed_progress': progress.dict()
+                })
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            logger.error(f"Error in periodic progress update: {e}")
+
+
 async def process_translation_job(job_id: str, job_data: dict):
     """Process a translation job"""
     job = translation_jobs[job_id]
 
     # Create translation config
     config = TranslationConfig(
-        model=job_data.get('model', 'gpt-4o-mini'),
+        model=job_data.get('model', 'gpt-4.1-nano'),
         temperature=job_data.get('temperature', 0.3),
         max_retries=job_data.get('max_retries', 3),
         output_dir=Path(job_data.get('output_dir', OUTPUT_DIR))
@@ -405,22 +579,41 @@ async def process_translation_job(job_id: str, job_data: dict):
         job.current_work = work_number
         job.progress = (i / total_works) * 100
 
+        # Get detailed progress for this work
+        detailed_progress = get_detailed_progress(work_number)
+        if detailed_progress:
+            job.detailed_progress = detailed_progress
+
         await manager.broadcast({
             'type': 'job_progress',
             'job_id': job_id,
             'current_work': work_number,
             'progress': job.progress,
             'completed': i,
-            'total': total_works
+            'total': total_works,
+            'detailed_progress': detailed_progress.dict() if detailed_progress else None
         })
 
         try:
             # Run translation in executor to avoid blocking
             orchestrator = WorkTranslationOrchestrator(config)
+
+            # Start a background task to periodically update progress
+            progress_task = asyncio.create_task(
+                periodic_progress_update(job_id, work_number, manager)
+            )
+
             result = await asyncio.to_thread(
                 orchestrator.translate_work,
                 work_number
             )
+
+            # Cancel progress updates
+            progress_task.cancel()
+            try:
+                await progress_task
+            except asyncio.CancelledError:
+                pass
 
             if result.get('success', True):
                 job.completed_works.append(work_number)
@@ -430,12 +623,24 @@ async def process_translation_job(job_id: str, job_data: dict):
             # Update statistics
             job.statistics = result.get('statistics', {})
 
+            # Final progress update for this work
+            final_progress = get_detailed_progress(work_number)
+            if final_progress:
+                job.detailed_progress = final_progress
+                await manager.broadcast({
+                    'type': 'work_complete',
+                    'job_id': job_id,
+                    'work_number': work_number,
+                    'detailed_progress': final_progress.dict()
+                })
+
         except Exception as e:
-            print(f"Error translating {work_number}: {e}")
+            logger.error(f"Error translating {work_number}: {e}")
             job.failed_works.append(work_number)
 
     # Final progress update
     job.progress = 100.0
+    job.detailed_progress = None
 
 
 # API Endpoints
@@ -521,6 +726,33 @@ async def cancel_job(job_id: str):
         return {"message": "Job paused (will stop after current work)"}
 
     return {"message": "Job not running"}
+
+
+@app.get("/api/progress/{work_number}", response_model=DetailedProgress)
+async def get_work_progress(work_number: str, volume: Optional[str] = None):
+    """Get detailed progress for a work/volume"""
+    progress = get_detailed_progress(work_number, volume)
+    if not progress:
+        raise HTTPException(status_code=404, detail="No progress data found")
+    return progress
+
+
+@app.get("/api/jobs/{job_id}/progress", response_model=DetailedProgress)
+async def get_job_detailed_progress(job_id: str):
+    """Get detailed progress for the current work in a job"""
+    if job_id not in translation_jobs:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    job = translation_jobs[job_id]
+    if not job.current_work:
+        raise HTTPException(status_code=404, detail="No active work in job")
+
+    # Try to get progress for current work
+    progress = get_detailed_progress(job.current_work)
+    if not progress:
+        raise HTTPException(status_code=404, detail="No progress data for current work")
+
+    return progress
 
 
 @app.websocket("/ws")

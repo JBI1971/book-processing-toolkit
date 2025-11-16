@@ -6,6 +6,7 @@ This document outlines organizational standards, coding conventions, and workflo
 
 - [Project Organization](#project-organization)
 - [Directory Structure](#directory-structure)
+- [File Organization Rules](#file-organization-rules)
 - [File Naming Conventions](#file-naming-conventions)
 - [Git Workflow](#git-workflow)
 - [Python Code Standards](#python-code-standards)
@@ -13,6 +14,7 @@ This document outlines organizational standards, coding conventions, and workflo
 - [Documentation Standards](#documentation-standards)
 - [Data Management](#data-management)
 - [Security Practices](#security-practices)
+- [Environment Configuration](#environment-configuration)
 
 ---
 
@@ -80,6 +82,267 @@ docs/
 │   ├── TRANSLATION_PIPELINE_README.md
 │   └── TRANSLATION_QUICK_START.md
 └── WEB_UI_TRANSLATION_MANAGER.md
+```
+
+---
+
+## File Organization Rules
+
+### The Golden Rule
+
+**Keep the root directory minimal**. Only these files belong at project root:
+- `README.md` - Project overview
+- `CLAUDE.md` - Instructions for Claude Code
+- `SYMLINK_SETUP.md` - Setup instructions
+- Configuration files (`.gitignore`, `pyproject.toml`, `package.json`, etc.)
+
+Everything else belongs in organized subdirectories.
+
+### Where Files Belong
+
+#### Documentation Files (`.md`)
+
+**ALL** markdown documentation → `docs/` directory with domain-specific subdirectories:
+
+```
+docs/
+├── BEST_PRACTICES.md              # Coding standards (this file)
+├── AI_ASSISTANT_GUIDE.md          # AI assistant management
+├── POST_PROCESSING_GUIDE.md       # Post-processing workflows
+├── WEB_UI_TRANSLATION_MANAGER.md  # Web UI documentation
+│
+├── translation/                   # Translation-specific
+│   ├── GLOSSARY_INTEGRATION_GUIDE.md
+│   ├── GLOSSARY_UPDATE_CHANGELOG.md
+│   ├── TECHNIQUE_TRANSLATION_QUICK_REFERENCE.md
+│   ├── WUXIA_TRANSLATION_EXAMPLES.md
+│   └── PIPELINE_SUMMARY.md
+│
+├── formatting/                    # EPUB formatting
+│   ├── EPUB_FORMATTING_STRATEGY.md
+│   ├── FORMATTING_ANALYSIS_SUMMARY.md
+│   └── FORMATTING_VISUAL_OVERVIEW.txt
+│
+├── scripts/                       # Script documentation
+│   ├── CLEANUP_README.md
+│   ├── VALIDATION_README.md
+│   ├── WUXIA_CATALOG_README.md
+│   └── SETUP_GUIDE.md
+│
+└── reports/                       # Analysis reports & bug reports
+    ├── TOC_REGENERATION_BUG_FIX.md
+    ├── glossary_integration_complete.md
+    └── wuxia_deduplication_guide.md
+```
+
+**Rules**:
+- NO `.md` files in root (except README, CLAUDE, SYMLINK_SETUP)
+- NO `.md` files in `scripts/` (move to `docs/scripts/`)
+- Group by domain: translation, formatting, scripts, reports
+- Use descriptive names with domain prefixes
+
+#### Data Files (`.csv`, `.json`, `.txt` reports)
+
+**ALL** data files → `data/` directory:
+
+```
+data/
+├── glossaries/                    # Glossary CSV files
+│   ├── wuxia_translation_glossary.csv
+│   ├── wuxia_translation_glossary_additions.csv
+│   ├── wuxia_glossary_merged.csv
+│   └── candidate_wuxia_terms.csv
+│
+└── analysis/                      # Generated analysis outputs
+    ├── classification_data.json
+    ├── deduplication_report.json
+    ├── ai_classification_report.txt
+    └── content_type_analysis_report.txt
+```
+
+**Rules**:
+- NO CSV/JSON data files in root
+- Separate source data (`glossaries/`) from generated reports (`analysis/`)
+- Consider adding `data/` to `.gitignore` for large files
+
+#### Scripts (`.py` executables)
+
+**ONLY** executable Python scripts → `scripts/` directory:
+
+```
+scripts/
+├── batch_process_books.py         # Production scripts
+├── validate_toc_chapter_alignment.py
+├── translate_work.py
+├── ...                            # 19+ legitimate scripts
+│
+└── (NO .md files here!)           # Documentation → docs/scripts/
+```
+
+**Rules**:
+- Scripts must be executable and have a clear purpose
+- NO documentation files (`.md`) in `scripts/`
+- NO ad-hoc test scripts in root (move to `scripts/` or delete)
+- Test scripts like `test_*.py` should be gitignored
+
+#### Log Files
+
+**ALL** logs → `logs/` directory (gitignored), categorized by type:
+
+```
+logs/
+├── batch/                         # Batch processing logs
+│   ├── batch_report_20251110_154741.json
+│   └── batch_report_20251110_200225.json
+│
+├── translation/                   # Translation logs
+│   ├── checkpoints/
+│   └── translation_progress.log
+│
+└── tests/                         # Test execution logs
+    ├── translation_test.log
+    └── translation_test_rerun.log
+```
+
+**Rules**:
+- NO logs in root directory
+- Categorize by log type (batch, translation, tests)
+- Use timestamped names for batch reports
+- Add log rotation/archival for large files
+
+### Common Violations and Fixes
+
+#### Violation: Documentation in Root
+
+```
+# BAD - Root directory cluttered
+project_root/
+├── README.md
+├── CLAUDE.md
+├── EPUB_FORMATTING_STRATEGY.md          ❌ Should be in docs/formatting/
+├── GLOSSARY_INTEGRATION_GUIDE.md        ❌ Should be in docs/translation/
+├── TOC_REGENERATION_BUG_FIX_REPORT.md   ❌ Should be in docs/reports/
+└── wuxia_deduplication_guide.md         ❌ Should be in docs/reports/
+```
+
+```
+# GOOD - Clean root, organized docs
+project_root/
+├── README.md
+├── CLAUDE.md
+└── docs/
+    ├── formatting/
+    │   └── EPUB_FORMATTING_STRATEGY.md  ✓
+    ├── translation/
+    │   └── GLOSSARY_INTEGRATION_GUIDE.md ✓
+    └── reports/
+        ├── TOC_REGENERATION_BUG_FIX.md   ✓
+        └── wuxia_deduplication_guide.md  ✓
+```
+
+#### Violation: Scripts in Root
+
+```
+# BAD - Scripts scattered
+project_root/
+├── ai_content_classifier.py     ❌ Should be in scripts/
+├── analyze_content_types.py     ❌ Should be in scripts/
+├── test_translator_simple.py    ❌ Should be in scripts/ or deleted
+└── scripts/
+    └── batch_process_books.py
+```
+
+```
+# GOOD - All scripts together
+project_root/
+└── scripts/
+    ├── ai_content_classifier.py          ✓
+    ├── analyze_content_types.py          ✓
+    ├── batch_process_books.py            ✓
+    └── (test_translator_simple.py)       ✓ Gitignored if needed
+```
+
+#### Violation: Data Files in Root
+
+```
+# BAD - Data files everywhere
+project_root/
+├── wuxia_translation_glossary.csv       ❌ Should be in data/glossaries/
+├── classification_data.json             ❌ Should be in data/analysis/
+├── deduplication_report.json            ❌ Should be in data/analysis/
+└── candidate_wuxia_terms.csv            ❌ Should be in data/glossaries/
+```
+
+```
+# GOOD - Data organized by type
+project_root/
+└── data/
+    ├── glossaries/
+    │   ├── wuxia_translation_glossary.csv    ✓
+    │   └── candidate_wuxia_terms.csv         ✓
+    └── analysis/
+        ├── classification_data.json          ✓
+        └── deduplication_report.json         ✓
+```
+
+#### Violation: Logs in Root
+
+```
+# BAD - Logs mixed with code
+project_root/
+├── batch_process_75_works.log           ❌ Should be in logs/batch/
+├── translation_test.log                 ❌ Should be in logs/tests/
+└── logs/
+    └── translation/
+```
+
+```
+# GOOD - Logs categorized
+project_root/
+└── logs/
+    ├── batch/
+    │   └── batch_process_75_works.log   ✓
+    ├── translation/
+    └── tests/
+        └── translation_test.log         ✓
+```
+
+### Agent-Specific Guidelines
+
+When working as a Claude Code agent, **always** follow these rules:
+
+1. **Before creating any file**, determine its correct location based on type
+2. **Before moving files**, check if directories need to be created first
+3. **Never leave files in root** unless they are essential config files
+4. **Update imports** when moving Python files
+5. **Document moves** in commit messages
+
+#### Quick Decision Tree
+
+```
+Creating a new file? Ask yourself:
+
+Is it a README/CLAUDE/SYMLINK_SETUP.md?
+  ├─ YES → Root directory
+  └─ NO  → Continue...
+
+Is it a .md documentation file?
+  ├─ YES → docs/ (with domain subdirectory)
+  └─ NO  → Continue...
+
+Is it a .py script?
+  ├─ YES → Is it a processor/util/cli module?
+  │         ├─ YES → processors/ or utils/ or cli/
+  │         └─ NO  → scripts/
+  └─ NO  → Continue...
+
+Is it a data file (.csv, .json report)?
+  ├─ YES → data/glossaries/ or data/analysis/
+  └─ NO  → Continue...
+
+Is it a log file?
+  ├─ YES → logs/batch/ or logs/translation/ or logs/tests/
+  └─ NO  → Probably configuration → Root is OK
 ```
 
 ---
@@ -248,6 +511,34 @@ except ValidationError as e:
     # Continue processing other files
 ```
 
+### Package Installation
+
+This project is a proper Python package. Install it in editable mode for development:
+
+```bash
+# Install package in editable mode
+pip install -e .
+
+# Install with development dependencies
+pip install -e ".[dev]"
+
+# Install with environment config support
+pip install -e ".[env]"
+
+# Install everything
+pip install -e ".[dev,env]"
+```
+
+After installation, all modules can be imported directly:
+
+```python
+from processors.json_cleaner import clean_book_json
+from utils.environment_config import get_env_config
+from processors.translation_config import TranslationConfig
+```
+
+**Important**: Never use `sys.path.insert()` to add the project root to the path. The package is properly installed and all imports should use absolute package paths.
+
 ### Imports
 
 Order imports by:
@@ -265,6 +556,18 @@ import sqlite3
 
 from processors.json_cleaner import clean_book_json
 from utils.load_env_creds import get_openai_api_key
+```
+
+**Never** use relative imports or `sys.path` hacks:
+
+```python
+# BAD - Don't do this
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+# GOOD - Use absolute imports
+from processors.json_cleaner import clean_book_json
 ```
 
 ---
@@ -412,6 +715,93 @@ metadata = extractor.get_metadata_by_directory('wuxia_0117')
 - **Format**: JSON for structured data, text for human-readable
 - **Rotation**: Keep recent logs, archive old ones
 - **Size**: Large batch reports should be in logs/, not root
+
+---
+
+## Translation Data Management
+
+### Output Organization
+
+Translation outputs follow a predictable hierarchical structure for easy discovery:
+
+```
+translation_data/
+├── outputs/              # Completed translations
+│   ├── {work_number}/   # Work folder (e.g., D58/, I1046/)
+│   │   ├── translated_{volume}.json        # Main translation output
+│   │   ├── metadata_{volume}.json          # Job metadata
+│   │   └── annotations_{volume}.json       # Cultural footnotes
+│   └── index.json       # Catalog of all completed translations
+├── checkpoints/         # Resume points for interrupted jobs
+│   └── {work_number}/
+│       └── {volume}/
+│           └── checkpoint_{timestamp}.json
+└── logs/                # Translation execution logs
+    └── {work_number}/
+        └── {volume}/
+            └── translation_{timestamp}.log
+```
+
+### Predictable Path Formulas
+
+**Translation Output**:
+`translation_data/outputs/{work_number}/translated_{volume}.json`
+
+Examples:
+- D58, volume 001: `translation_data/outputs/D58/translated_001.json`
+- I1046, no volume: `translation_data/outputs/I1046/translated.json`
+
+**Checkpoint File**:
+`translation_data/checkpoints/{work_number}/{volume}/checkpoint_{timestamp}.json`
+
+**Log File**:
+`translation_data/logs/{work_number}/{volume}/translation_{timestamp}.log`
+
+### Index File Format
+
+The `translation_data/outputs/index.json` file catalogs all completed translations:
+
+```json
+{
+  "last_updated": "2025-01-14T10:30:00Z",
+  "translations": [
+    {
+      "work_number": "D58",
+      "volume": "001",
+      "title_chinese": "書劍恩仇錄",
+      "title_english": "The Book and the Sword",
+      "author_chinese": "金庸",
+      "author_english": "Jin Yong",
+      "completed_at": "2025-01-14T09:15:00Z",
+      "output_path": "translation_data/outputs/D58/translated_001.json",
+      "total_chapters": 40,
+      "total_blocks": 1250,
+      "token_usage": 450000
+    }
+  ]
+}
+```
+
+### UI Discovery Pattern
+
+The web UI uses the index file to discover available translations:
+
+1. Read `translation_data/outputs/index.json`
+2. Display works with metadata (title, author, completion date)
+3. Allow filtering by work_number, title, author
+4. Link to translation output files
+
+### Cleanup and Archival
+
+**Checkpoints**: Keep for 30 days after completion, then archive or delete
+**Logs**: Archive logs older than 90 days to `logs/archive/`
+**Old Translations**: Keep previous versions when re-translating (add timestamp suffix)
+
+```bash
+# Example: Re-translation preserves old version
+translation_data/outputs/D58/translated_001.json                    # New version
+translation_data/outputs/D58/translated_001_20250114.json          # Archived old version
+```
 
 ---
 
@@ -582,6 +972,421 @@ cd web_ui/translation_manager
 
 ---
 
+## Environment Configuration
+
+### Overview
+
+The project uses environment-based configuration to eliminate hardcoded paths and enable flexible deployment across different environments (development, production, CI/CD).
+
+**Key Benefits**:
+- No hardcoded absolute paths in code
+- Easy configuration for different machines
+- Consistent paths across all components
+- Support for .env files and environment variables
+- Graceful fallback to sensible defaults
+
+### Quick Start
+
+**1. Copy the template**:
+```bash
+cp .env.example .env
+```
+
+**2. Edit with your paths**:
+```bash
+# Edit .env with your local paths
+nano .env  # or use your favorite editor
+```
+
+**3. Configure your environment**:
+```bash
+# Source data paths
+WUXIA_SOURCE_DIR=/path/to/your/cleaned/source/files
+WUXIA_CATALOG_PATH=/path/to/your/wuxia_catalog.db
+WUXIA_GLOSSARY_DB_PATH=./wuxia_glossary.db
+
+# Output paths (project-relative is recommended)
+WUXIA_OUTPUT_DIR=./translation_data/outputs
+WUXIA_LOG_DIR=./logs/translation
+
+# API keys
+OPENAI_API_KEY=your-openai-api-key-here
+```
+
+### Available Environment Variables
+
+#### Source Data Paths
+
+**WUXIA_SOURCE_DIR**
+- Purpose: Directory containing cleaned JSON source files
+- Default: `/Users/jacki/project_files/translation_project/cleaned/COMPLETE_ALL_BOOKS`
+- Example: `/path/to/your/cleaned/source/files`
+- Used by: Translation pipeline, batch processors
+
+**WUXIA_CATALOG_PATH**
+- Purpose: Path to wuxia catalog SQLite database
+- Default: `/Users/jacki/project_files/translation_project/wuxia_catalog.db`
+- Example: `/path/to/your/wuxia_catalog.db`
+- Used by: Metadata extraction, catalog queries
+
+**WUXIA_GLOSSARY_DB_PATH**
+- Purpose: Path to wuxia glossary SQLite database
+- Default: `./wuxia_glossary.db` (project root)
+- Example: `./wuxia_glossary.db` or `/path/to/glossary.db`
+- Used by: Translation glossary lookup, term matching
+
+#### Output Paths
+
+**WUXIA_OUTPUT_DIR**
+- Purpose: Directory for translation outputs
+- Default: `./translation_data/outputs` (project-relative)
+- Example: `./translation_data/outputs`
+- Used by: Translation output, file generation
+
+**WUXIA_LOG_DIR**
+- Purpose: Directory for translation logs
+- Default: `./logs/translation` (project-relative)
+- Example: `./logs/translation`
+- Used by: Logging, checkpoint files
+
+#### API Keys
+
+**OPENAI_API_KEY**
+- Purpose: OpenAI API key for translation services
+- Required: Yes (for translation features)
+- Example: `sk-proj-...`
+
+**ANTHROPIC_API_KEY**
+- Purpose: Anthropic API key (optional, for future features)
+- Required: No
+- Example: `sk-ant-...`
+
+### How It Works
+
+#### 1. Project Root Auto-Detection
+
+The system automatically detects your project root by looking for:
+- `.git` directory (most common)
+- `pyproject.toml` file
+- `processors/` and `utils/` directories
+
+```python
+from utils.environment_config import detect_project_root
+
+project_root = detect_project_root()
+# Returns: Path('/Users/jacki/PycharmProjects/agentic_test_project')
+```
+
+#### 2. Configuration Loading
+
+Configuration is loaded in this order:
+1. `.env` file (if python-dotenv installed and .env exists)
+2. Environment variables (os.environ)
+3. Hardcoded defaults (fallback)
+
+```python
+from utils.environment_config import get_env_config
+
+config = get_env_config()
+print(config.source_dir)      # Path from WUXIA_SOURCE_DIR or default
+print(config.catalog_path)    # Path from WUXIA_CATALOG_PATH or default
+```
+
+#### 3. Singleton Pattern
+
+For application-wide consistency, use the singleton pattern:
+
+```python
+from utils.environment_config import get_or_create_env_config
+
+# Gets or creates the singleton instance
+config = get_or_create_env_config()
+
+# All subsequent calls return the same instance
+config2 = get_or_create_env_config()
+assert config is config2  # True
+```
+
+#### 4. Validation
+
+Always validate configuration before starting operations:
+
+```python
+config = get_or_create_env_config()
+
+errors = config.validate()
+if errors:
+    print("Configuration errors:")
+    for error in errors:
+        print(f"  - {error}")
+    sys.exit(1)
+```
+
+### Using Environment Config in Your Code
+
+#### TranslationConfig Integration
+
+`TranslationConfig` automatically loads from environment:
+
+```python
+from processors.translation_config import TranslationConfig
+
+# Paths loaded from environment automatically
+config = TranslationConfig()
+
+# Or override specific paths
+config = TranslationConfig(
+    source_dir=Path("/custom/source/path"),
+    # other paths loaded from environment
+)
+```
+
+#### Direct EnvironmentConfig Usage
+
+For utilities that only need paths:
+
+```python
+from utils.environment_config import get_or_create_env_config
+
+config = get_or_create_env_config()
+
+# Validate paths exist
+errors = config.validate()
+if errors:
+    logger.error(f"Configuration errors: {errors}")
+    sys.exit(1)
+
+# Create output directories
+config.create_output_dirs()
+
+# Use paths
+with open(config.catalog_path) as f:
+    data = f.read()
+```
+
+### Path Configuration Best Practices
+
+#### 1. Use Project-Relative Paths for Outputs
+
+**Good** (portable, works on any machine):
+```bash
+WUXIA_OUTPUT_DIR=./translation_data/outputs
+WUXIA_LOG_DIR=./logs/translation
+```
+
+**Bad** (hardcoded, machine-specific):
+```bash
+WUXIA_OUTPUT_DIR=/Users/jacki/project_files/outputs
+WUXIA_LOG_DIR=/Users/jacki/logs
+```
+
+#### 2. Use Absolute Paths for External Data
+
+**Good** (explicit, clear):
+```bash
+WUXIA_SOURCE_DIR=/path/to/external/data/source
+WUXIA_CATALOG_PATH=/path/to/external/data/wuxia_catalog.db
+```
+
+**Why**: External data locations vary by environment and shouldn't be inside the project.
+
+#### 3. Use Forward Slashes Even on Windows
+
+**Good** (cross-platform):
+```bash
+WUXIA_SOURCE_DIR=/c/Users/username/data/source
+```
+
+**Bad** (Windows-specific):
+```bash
+WUXIA_SOURCE_DIR=C:\Users\username\data\source
+```
+
+Python's `Path` handles forward slashes correctly on all platforms.
+
+#### 4. Don't Commit .env Files
+
+**Good**:
+```bash
+# .gitignore
+.env
+env_creds.yml
+```
+
+**Why**: .env files contain machine-specific paths and API keys. Use `.env.example` as template.
+
+### Common Setup Scenarios
+
+#### Scenario 1: Local Development
+
+```bash
+# .env
+WUXIA_SOURCE_DIR=/Users/jacki/project_files/translation_project/cleaned/COMPLETE_ALL_BOOKS
+WUXIA_CATALOG_PATH=/Users/jacki/project_files/translation_project/wuxia_catalog.db
+WUXIA_GLOSSARY_DB_PATH=./wuxia_glossary.db
+WUXIA_OUTPUT_DIR=./translation_data/outputs
+WUXIA_LOG_DIR=./logs/translation
+OPENAI_API_KEY=sk-proj-your-key-here
+```
+
+#### Scenario 2: CI/CD Pipeline
+
+```bash
+# Set as environment variables in CI system
+export WUXIA_SOURCE_DIR=/ci/workspace/data/source
+export WUXIA_CATALOG_PATH=/ci/workspace/data/catalog.db
+export WUXIA_GLOSSARY_DB_PATH=/ci/workspace/data/glossary.db
+export WUXIA_OUTPUT_DIR=/ci/workspace/outputs
+export WUXIA_LOG_DIR=/ci/workspace/logs
+export OPENAI_API_KEY=${CI_SECRET_OPENAI_KEY}
+```
+
+#### Scenario 3: Production Server
+
+```bash
+# /etc/environment or systemd service file
+WUXIA_SOURCE_DIR=/var/lib/wuxia/source
+WUXIA_CATALOG_PATH=/var/lib/wuxia/catalog.db
+WUXIA_GLOSSARY_DB_PATH=/var/lib/wuxia/glossary.db
+WUXIA_OUTPUT_DIR=/var/lib/wuxia/outputs
+WUXIA_LOG_DIR=/var/log/wuxia/translation
+OPENAI_API_KEY=sk-proj-production-key
+```
+
+### Migration Guide from Hardcoded Paths
+
+#### Step 1: Identify Hardcoded Paths
+
+Search for hardcoded paths:
+```bash
+grep -r "/Users/jacki/project_files" --include="*.py" .
+```
+
+#### Step 2: Create .env File
+
+```bash
+cp .env.example .env
+# Edit .env with your actual paths
+```
+
+#### Step 3: Update Code to Use EnvironmentConfig
+
+**Before** (hardcoded):
+```python
+catalog_path = "/Users/jacki/project_files/translation_project/wuxia_catalog.db"
+```
+
+**After** (environment-based):
+```python
+from utils.environment_config import get_or_create_env_config
+
+config = get_or_create_env_config()
+catalog_path = config.catalog_path
+```
+
+#### Step 4: Test Configuration
+
+```bash
+# Test environment config loading
+python utils/environment_config.py
+
+# Should output:
+# ================================================================================
+# Environment Configuration Test
+# ================================================================================
+#
+# Project Root: /Users/jacki/PycharmProjects/agentic_test_project
+# Source Paths:
+#   Source Dir: /Users/jacki/project_files/translation_project/cleaned/COMPLETE_ALL_BOOKS
+#   Catalog DB: /Users/jacki/project_files/translation_project/wuxia_catalog.db
+#   Glossary DB: /Users/jacki/PycharmProjects/agentic_test_project/wuxia_glossary.db
+# Output Paths:
+#   Output Dir: /Users/jacki/PycharmProjects/agentic_test_project/translation_data/outputs
+#   Log Dir: /Users/jacki/PycharmProjects/agentic_test_project/logs/translation
+#
+# Validation:
+#   ✓ All required paths exist
+#
+# ✓ Configuration validated successfully
+```
+
+#### Step 5: Update Existing Scripts
+
+**Before**:
+```python
+# scripts/translate_work.py
+config = TranslationConfig(
+    source_dir=Path("/Users/jacki/project_files/..."),
+    catalog_path=Path("/Users/jacki/project_files/...")
+)
+```
+
+**After**:
+```python
+# scripts/translate_work.py
+# Paths loaded automatically from environment
+config = TranslationConfig()
+
+# Or override specific paths if needed
+config = TranslationConfig(
+    source_dir=args.source_dir  # from CLI args
+)
+```
+
+### Troubleshooting
+
+#### Issue: "Configuration errors: Catalog database not found"
+
+**Solution**: Check that `WUXIA_CATALOG_PATH` points to an existing file:
+```bash
+echo $WUXIA_CATALOG_PATH
+ls -la "$WUXIA_CATALOG_PATH"
+```
+
+#### Issue: "EnvironmentConfig not available, using hardcoded defaults"
+
+**Solution**: This warning appears when `utils.environment_config` can't be imported. Check:
+1. File exists: `ls utils/environment_config.py`
+2. No syntax errors: `python -m py_compile utils/environment_config.py`
+3. Imports work: `python -c "from utils.environment_config import get_env_config"`
+
+#### Issue: ".env file not being loaded"
+
+**Solution**:
+1. Install python-dotenv: `pip install python-dotenv`
+2. Verify .env location: Should be in project root
+3. Check .env syntax: Use `KEY=value` format, no spaces around `=`
+
+#### Issue: "Paths work on my machine but not CI"
+
+**Solution**: Use environment variables in CI instead of .env:
+```yaml
+# .github/workflows/test.yml
+env:
+  WUXIA_SOURCE_DIR: /ci/workspace/data
+  WUXIA_CATALOG_PATH: /ci/workspace/catalog.db
+```
+
+### Dependencies
+
+**Required**: None (uses only Python stdlib)
+
+**Optional**:
+- `python-dotenv` - For .env file support (recommended)
+  ```bash
+  pip install python-dotenv
+  ```
+  Without it, system falls back to `os.environ` only.
+
+### Files Reference
+
+- **utils/environment_config.py** - Core configuration module
+- **.env.example** - Template for local configuration
+- **processors/translation_config.py** - Translation config with environment integration
+- **docs/BEST_PRACTICES.md** - This file
+
+---
+
 ## Maintenance Tasks
 
 ### Regular Cleanup (Monthly)
@@ -647,7 +1452,12 @@ Don't create docs for:
 ## Version History
 
 - **2025-01-11**: Initial version after project cleanup
-- **Purpose**: Codify organizational standards learned during refactoring
+  - Codified organizational standards learned during refactoring
+- **2025-01-14**: Added comprehensive File Organization Rules section
+  - Added detailed file placement guidelines (docs/, data/, scripts/, logs/)
+  - Added common violations and fixes with examples
+  - Added agent-specific guidelines and decision tree
+  - Purpose: Address root directory clutter and scattered files
 
 ---
 

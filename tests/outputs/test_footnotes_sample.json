@@ -1,0 +1,93 @@
+{
+  "meta": {
+    "title": "Test Book",
+    "author": "Test Author",
+    "work_number": "TEST001",
+    "language": "zh-Hant",
+    "schema_version": "2.0.0"
+  },
+  "structure": {
+    "front_matter": {
+      "toc": []
+    },
+    "body": {
+      "chapters": [
+        {
+          "id": "chapter_0001",
+          "title": "第一章　測試",
+          "ordinal": 1,
+          "content_blocks": [
+            {
+              "id": "block_0001",
+              "type": "paragraph",
+              "content": "這是測試內容。",
+              "footnotes": [
+                {
+                  "key": 1,
+                  "ideogram": "第一回",
+                  "explanation": "第一章",
+                  "pinyin": "dì yī huí"
+                },
+                {
+                  "key": 2,
+                  "ideogram": "古怪離奇的考試",
+                  "explanation": "奇怪的考試方式",
+                  "pinyin": "gǔ guài lí qí de kǎo shì"
+                },
+                {
+                  "key": 3,
+                  "ideogram": "死",
+                  "explanation": "死亡",
+                  "pinyin": "sǐ"
+                },
+                {
+                  "key": 4,
+                  "ideogram": "償命",
+                  "explanation": "以命償還，以生命為代價償還欠債",
+                  "pinyin": "cháng mìng"
+                },
+                {
+                  "key": 5,
+                  "ideogram": "劍戟",
+                  "explanation": "泛指兵器",
+                  "pinyin": "jiàn jǐ"
+                },
+                {
+                  "key": 6,
+                  "ideogram": "張三",
+                  "explanation": "故事主角，年輕劍客",
+                  "pinyin": "zhāng sān"
+                },
+                {
+                  "key": 7,
+                  "ideogram": "李四",
+                  "explanation": "張三的朋友，也是武林高手",
+                  "pinyin": "lǐ sì"
+                },
+                {
+                  "key": 8,
+                  "ideogram": "孔子",
+                  "explanation": "春秋時期著名思想家、教育家",
+                  "pinyin": "kǒng zǐ"
+                },
+                {
+                  "key": 9,
+                  "ideogram": "關羽",
+                  "explanation": "三國時期蜀漢名將，後被奉為武聖",
+                  "pinyin": "guān yǔ"
+                },
+                {
+                  "key": 10,
+                  "ideogram": "玉皇大帝",
+                  "explanation": "道教中的最高神祇",
+                  "pinyin": "yù huáng dà dì"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "back_matter": {}
+  }
+}

@@ -211,7 +211,7 @@ def verify_openai_key(api_key: Optional[str] = None) -> bool:
 
         # Make a minimal test call
         response = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model="gpt-4.1-nano",
             messages=[{"role": "user", "content": "test"}],
             max_tokens=5
         )

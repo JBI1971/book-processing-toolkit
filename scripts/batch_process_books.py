@@ -1,25 +1,28 @@
 #!/usr/bin/env python3
 """
-Batch Process Books - Complete 7-stage pipeline with parallel processing
+Batch Process Books - Complete 8-stage pipeline with parallel processing
 
 Process multiple book files through the complete pipeline:
 1. Topology analysis
 2. Sanity check (metadata lookup, sequence validation)
 3. JSON cleaning (with enhanced title page classification)
-4. Chapter alignment fix
-5. TOC restructuring (intelligent matching fixes most issues)
-6. Comprehensive validation:
+4. Embedded chapter detection (extracts chapters from intro sections)
+5. Chapter alignment fix
+6. TOC restructuring (intelligent matching fixes most issues)
+7. Comprehensive validation:
    - TOC/Chapter alignment (extracts actual headings from content_blocks)
    - Structure validation (chapter classification)
    - Detects missing chapters, mismatches, sequence gaps
    - OpenAI semantic validation for ambiguous cases
-7. Missing chapter search (TOC-based)
-8. Auto-fix (systematic offsets, title page removal, TOC regeneration)
+8. Missing chapter search (TOC-based)
+9. Auto-fix (systematic offsets, title page removal, TOC regeneration)
 
 Features:
 - Parallel processing with configurable workers (default: 1)
 - Thread-safe result tracking and issue categorization
 - Enhanced title page detection (《》, publisher info, metadata)
+- Embedded chapter detection (ANY chapter marker: 一、二、三... 廿、卅、卌...)
+- Works for multi-volume books with any starting chapter number
 - Comprehensive missing chapter search with fuzzy matching
 - Automatic fixes for common issues
 
@@ -45,8 +48,6 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 _log_lock = threading.Lock()
 
-# Add parent directory to path
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 # Load environment credentials (including OpenAI API key)
 from utils.load_env_creds import load_env_credentials
@@ -61,6 +62,7 @@ from utils.fix_chapter_alignment import ChapterAlignmentFixer
 from utils.restructure_toc import TOCRestructurer
 from utils.sanity_checker import BookSanityChecker
 from utils.catalog_metadata import get_volume_label
+from utils.embedded_chapter_detector import detect_embedded_chapters
 
 
 def _process_file_worker(args):
@@ -116,6 +118,7 @@ class BatchProcessor:
                 'topology': {'success': 0, 'failed': 0},
                 'sanity_check': {'success': 0, 'failed': 0},
                 'cleaning': {'success': 0, 'failed': 0},
+                'embedded_chapter': {'success': 0, 'failed': 0},
                 'alignment': {'success': 0, 'failed': 0},
                 'toc': {'success': 0, 'failed': 0},
                 'validation': {'success': 0, 'failed': 0},
@@ -223,7 +226,7 @@ class BatchProcessor:
 
         try:
             # Stage 1: Topology Analysis
-            print(f"\n[1/6] Topology Analysis...")
+            print(f"\n[1/8] Topology Analysis...")
             topology_result = self._stage_topology(json_file)
             result['stages']['topology'] = topology_result
             result['stats']['tokens'] = topology_result.get('estimated_tokens', 0)
@@ -253,8 +256,8 @@ class BatchProcessor:
 
             self._update_results({'stage_stats': ('topology', 'success', 1)})
 
-            # Stage 1.5: Sanity Check
-            print(f"[1.5/6] Sanity Check...")
+            # Stage 2: Sanity Check
+            print(f"[2/8] Sanity Check...")
             sanity_result = self._stage_sanity_check(json_file, folder_name)
             result['stages']['sanity_check'] = sanity_result
 
@@ -282,8 +285,8 @@ class BatchProcessor:
                 })
                 # Continue anyway - sanity check failures are not fatal
 
-            # Stage 2: JSON Cleaning
-            print(f"[2/6] JSON Cleaning...")
+            # Stage 3: JSON Cleaning
+            print(f"[3/8] JSON Cleaning...")
             metadata = result.get('metadata')  # Get metadata from sanity check
             cleaning_result = self._stage_clean(json_file, folder_name, metadata)
             result['stages']['cleaning'] = cleaning_result
@@ -301,8 +304,27 @@ class BatchProcessor:
             result['stats']['chapters'] = cleaning_result.get('chapters', 0)
             result['stats']['blocks'] = cleaning_result.get('blocks', 0)
 
-            # Stage 3: Chapter Alignment
-            print(f"[3/6] Chapter Alignment...")
+            # Stage 4: Embedded Chapter Detection
+            print(f"[4/8] Embedded Chapter Detection...")
+            embedded_result = self._stage_embedded_chapter(cleaned_path)
+            result['stages']['embedded_chapter'] = embedded_result
+
+            if embedded_result['success']:
+                self._update_results({'stage_stats': ('embedded_chapter', 'success', 1)})
+                if embedded_result.get('extracted', False):
+                    result['warnings'].append(
+                        f"Extracted chapter {embedded_result.get('chapter_number', '?')} "
+                        f"from introduction: {embedded_result.get('chapter_title', 'Unknown')[:40]}"
+                    )
+                    # Update chapter count
+                    result['stats']['chapters'] = embedded_result.get('total_chapters', result['stats']['chapters'])
+            else:
+                self._update_results({'stage_stats': ('embedded_chapter', 'failed', 1)})
+                # Non-fatal error, continue processing
+                logger.warning(f"Embedded chapter detection failed: {embedded_result.get('error', 'Unknown error')}")
+
+            # Stage 5: Chapter Alignment
+            print(f"[5/8] Chapter Alignment...")
             alignment_result = self._stage_alignment(cleaned_path)
             result['stages']['alignment'] = alignment_result
 
@@ -318,8 +340,8 @@ class BatchProcessor:
                 if alignment_result.get('fixes', 0) > 0:
                     result['warnings'].append(f"Fixed {alignment_result['fixes']} chapter alignments")
 
-            # Stage 4: TOC Restructuring (includes intelligent fuzzy matching)
-            print(f"[4/6] TOC Restructuring...")
+            # Stage 6: TOC Restructuring (includes intelligent fuzzy matching)
+            print(f"[6/8] TOC Restructuring...")
             toc_result = self._stage_toc(cleaned_path)
             result['stages']['toc'] = toc_result
 
@@ -335,8 +357,8 @@ class BatchProcessor:
                 if toc_result.get('warnings'):
                     result['warnings'].extend(toc_result['warnings'])
 
-            # Stage 5: Combined Validation (TOC alignment + Structure)
-            print(f"[5/7] Validation (TOC + Structure)...")
+            # Stage 7: Combined Validation (TOC alignment + Structure)
+            print(f"[7/8] Validation (TOC + Structure)...")
             validation_result = self._stage_validate(cleaned_path)
             result['stages']['validation'] = validation_result
 
@@ -350,8 +372,8 @@ class BatchProcessor:
                 if validation_result.get('warnings'):
                     result['warnings'].extend(validation_result['warnings'])
 
-            # Stage 6: Missing Chapter Search
-            print(f"[6/7] Missing Chapter Search...")
+            # Stage 8: Missing Chapter Search
+            print(f"[8/8] Missing Chapter Search...")
             missing_result = self._stage_missing_chapters(cleaned_path, json_file)
             result['stages']['missing_chapters'] = missing_result
 
@@ -361,15 +383,10 @@ class BatchProcessor:
                 if missing_result.get('missing_count', 0) > 0:
                     result['warnings'].append(f"{missing_result['missing_count']} chapters missing from body")
 
-            # Stage 7: Auto-Fix (optional)
-            print(f"[7/7] Auto-Fix...")
-            autofix_result = self._stage_autofix(cleaned_path)
-            result['stages']['autofix'] = autofix_result
-
-            if autofix_result['success']:
-                result['stats']['fixes_applied'] = autofix_result.get('fixes_applied', 0)
-                if autofix_result.get('fixes_applied', 0) > 0:
-                    result['warnings'].append(f"{autofix_result['fixes_applied']} automatic fixes applied")
+            # Optional: Auto-Fix (if enabled in future)
+            # Note: Commented out for now, can be enabled with flag
+            # autofix_result = self._stage_autofix(cleaned_path)
+            # result['stages']['autofix'] = autofix_result
 
             # Final status
             if validation_result['success'] and missing_result.get('missing_count', 0) == 0:
@@ -518,6 +535,69 @@ class BatchProcessor:
             }
         except Exception as e:
             return {'success': False, 'error': str(e)}
+
+    def _stage_embedded_chapter(self, cleaned_path: Path) -> Dict[str, Any]:
+        """
+        Detect and extract chapters embedded in introduction sections.
+
+        This stage handles the common pattern where the first chapter of a volume
+        is embedded in title/introduction pages.
+
+        Supports:
+        - ANY chapter marker (一、二、三... 廿、卅、卌...)
+        - Any starting chapter number (not limited to Chapter 1)
+        - Multi-volume works with different chapter numbering schemes
+
+        Returns:
+            {
+                'success': bool,
+                'extracted': bool,
+                'chapter_number': int (if extracted),
+                'chapter_title': str (if extracted),
+                'total_chapters': int (after extraction),
+                'error': str (if failed)
+            }
+        """
+        try:
+            if self.dry_run:
+                return {'success': True, 'extracted': False, 'skipped': 'dry_run'}
+
+            # Load cleaned JSON
+            with open(cleaned_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+
+            # Run detection and extraction
+            modified_data, was_modified = detect_embedded_chapters(data)
+
+            result = {
+                'success': True,
+                'extracted': was_modified
+            }
+
+            if was_modified:
+                # Extract info about the extracted chapter
+                chapters = modified_data.get('structure', {}).get('body', {}).get('chapters', [])
+                if chapters:
+                    first_chapter = chapters[0]
+                    result['chapter_number'] = first_chapter.get('ordinal', 1)
+                    result['chapter_title'] = first_chapter.get('title', 'Unknown')
+                    result['total_chapters'] = len(chapters)
+
+                    # Log extraction
+                    logger.info(
+                        f"Extracted chapter {result['chapter_number']}: "
+                        f"{result['chapter_title'][:40]}"
+                    )
+
+                # Save modified JSON
+                with open(cleaned_path, 'w', encoding='utf-8') as f:
+                    json.dump(modified_data, f, ensure_ascii=False, indent=2)
+
+            return result
+
+        except Exception as e:
+            logger.error(f"Embedded chapter detection failed: {e}")
+            return {'success': False, 'error': str(e), 'extracted': False}
 
     def _stage_alignment(self, cleaned_path: Path) -> Dict[str, Any]:
         """Run chapter alignment fix"""

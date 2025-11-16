@@ -170,7 +170,7 @@ ls -la /Users/jacki/project_files/translation_project/test_cleaned_json_v2/COMPL
 
 ```bash
 # Use slower rate
-python scripts/translate_work.py D55 --model gpt-4o-mini
+python scripts/translate_work.py D55 --model gpt-4.1-nano
 
 # Edit translation_config.py:
 # rate_limit_delay: 2.0  # Increase to 2 seconds
@@ -217,7 +217,7 @@ Create a custom config:
 from processors.translation_config import TranslationConfig
 
 config = TranslationConfig(
-    model="gpt-4o-mini",
+    model="gpt-4.1-nano",
     temperature=0.2,
     rate_limit_delay=1.5,
     max_retries=5,

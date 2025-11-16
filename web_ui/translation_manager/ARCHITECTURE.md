@@ -311,7 +311,7 @@ Response: WorkDetail
 POST /api/jobs
 Body: {
   work_numbers: ["D55", "D70"],
-  model: "gpt-4o-mini",
+  model: "gpt-4.1-nano",
   temperature: 0.3,
   max_retries: 3
 }
@@ -421,7 +421,7 @@ def test_get_works_from_db():
 async def test_create_job_endpoint():
     response = await client.post("/api/jobs", json={
         "work_numbers": ["TEST001"],
-        "model": "gpt-4o-mini"
+        "model": "gpt-4.1-nano"
     })
     assert response.status_code == 200
     assert "job_id" in response.json()

@@ -15,5 +15,8 @@ tenacity>=8.2.0
 # Progress tracking (optional but recommended)
 tqdm>=4.65.0
 
+# Workflow orchestration
+prefect>=3.6.0
+
 # Testing
 pytest>=7.4.0

@@ -40,7 +40,7 @@ The FastAPI backend is fully implemented with:
 
 - ✅ Works listing with search/filtering
 - ✅ Full work retrieval with structure
-- ✅ On-demand translation via OpenAI (gpt-4o-mini)
+- ✅ On-demand translation via OpenAI (gpt-4.1-nano)
 - ✅ Chapter reordering
 - ✅ Chapter metadata updates (section/special types)
 - ✅ Save to review directory with edit history

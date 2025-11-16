@@ -47,7 +47,7 @@ class AlignmentResult:
 class TOCAlignmentValidator:
     """Validate TOC/chapter alignment using OpenAI"""
 
-    def __init__(self, model: str = "gpt-4o-mini", temperature: float = 0.1):
+    def __init__(self, model: str = "gpt-4.1-nano", temperature: float = 0.1):
         """
         Initialize validator.
 

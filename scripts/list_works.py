@@ -29,8 +29,6 @@ from pathlib import Path
 from typing import List, Dict, Any, Optional
 from collections import defaultdict
 
-# Add parent directory to path
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from processors.translation_config import TranslationConfig
 from processors.volume_manager import VolumeManager

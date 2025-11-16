@@ -16,7 +16,6 @@ from typing import Optional, Dict, List
 import time
 
 # Add project root to path
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from utils.load_env_creds import get_openai_api_key
 from openai import OpenAI
@@ -96,7 +95,7 @@ Respond ONLY with valid JSON in this exact format:
 
     try:
         response = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model="gpt-4.1-nano",
             messages=[
                 {"role": "system", "content": "You are an expert on wuxia literature translations. Always respond with valid JSON only."},
                 {"role": "user", "content": prompt}

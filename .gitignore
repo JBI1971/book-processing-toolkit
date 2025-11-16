@@ -59,5 +59,19 @@ works.csv
 # Symlinks (created during setup, not in git)
 translation_data
 
+# Data files
+data/analysis/*.json
+data/analysis/*.txt
+data/glossaries/*.csv
+
+# Translation outputs and progress
+translation_data/outputs/
+translation_data/checkpoints/
+translation_data/logs/
+
+# Progress database
+logs/translation/progress.db
+logs/translation/progress.db-*
+
 # Autonomous test logs
 autonomous_test_logs/

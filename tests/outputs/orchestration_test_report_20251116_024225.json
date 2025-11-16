@@ -1,0 +1,61 @@
+{
+  "test_name": "orchestration_pipeline_integration",
+  "work_number": "D1379",
+  "start_stage": 5,
+  "end_stage": 7,
+  "dry_run": false,
+  "start_time": "2025-11-16T02:42:24.257996",
+  "stages_tested": [
+    {
+      "stage": 5,
+      "name": "special",
+      "wip_dir": "/Users/jacki/project_files/translation_project/wip/stage_5_special",
+      "wip_files_found": 1
+    },
+    {
+      "stage": 6,
+      "name": "cleanup",
+      "wip_dir": "/Users/jacki/project_files/translation_project/wip/stage_6_cleanup",
+      "wip_files_found": 1
+    },
+    {
+      "stage": 7,
+      "name": "validation",
+      "wip_dir": "/Users/jacki/project_files/translation_project/wip/stage_7_validation",
+      "wip_files_found": 1
+    }
+  ],
+  "wip_files_created": [
+    "/Users/jacki/project_files/translation_project/wip/stage_5_special/cleaned_D1379_偷拳_白羽.json",
+    "/Users/jacki/project_files/translation_project/wip/stage_6_cleanup/cleaned_D1379_偷拳_白羽.json",
+    "/Users/jacki/project_files/translation_project/wip/stage_7_validation/cleaned_D1379_偷拳_白羽.json"
+  ],
+  "stage_logs_created": [],
+  "errors": [],
+  "warnings": [],
+  "pipeline_report": {
+    "work_number": "D1379",
+    "success": true,
+    "volumes_processed": 1,
+    "volumes_successful": 1,
+    "volumes_failed": 0,
+    "volume_reports": [
+      {
+        "filename": "cleaned_D1379_偷拳_白羽",
+        "start_time": "2025-11-16T02:42:24.262058",
+        "end_time": "2025-11-16T02:42:25.697740",
+        "duration_seconds": 1.435682,
+        "success": true,
+        "stages_completed": 5,
+        "errors": []
+      }
+    ],
+    "errors": []
+  },
+  "success": true,
+  "final_output_files": [
+    "/Users/jacki/project_files/translation_project/translated_files/cleaned_D1379_偷拳_白羽.json"
+  ],
+  "end_time": "2025-11-16T02:42:25.698507",
+  "duration_seconds": 1.440511
+}

@@ -1,0 +1,104 @@
+{
+  "footnotes": [
+    {
+      "type": "CULTURAL",
+      "confidence": 0.9,
+      "reasoning": "The phrase '第一回' refers to a chapter or section in serialized literature, a common literary concept in Chinese culture."
+    },
+    {
+      "type": "CULTURAL",
+      "confidence": 0.9,
+      "reasoning": "Describes an unusual exam, a cultural concept related to education or storytelling, not a person or place."
+    },
+    {
+      "type": "CULTURAL",
+      "confidence": 0.9,
+      "reasoning": "The term '死' (death) is a basic concept in Chinese culture and literature, not a specific person."
+    },
+    {
+      "type": "CULTURAL",
+      "confidence": 0.9,
+      "reasoning": "The phrase '償命' relates to traditional notions of justice and retribution, a cultural concept."
+    },
+    {
+      "type": "CULTURAL",
+      "confidence": 0.9,
+      "reasoning": "Refers to traditional weapons, a cultural and historical element in martial contexts."
+    },
+    {
+      "type": "CULTURAL",
+      "confidence": 0.9,
+      "reasoning": "Swords and spears are fundamental martial items, representing martial culture."
+    },
+    {
+      "type": "CULTURAL",
+      "confidence": 0.9,
+      "reasoning": "Guards or sentinels are common roles in historical and cultural contexts, not specific persons."
+    },
+    {
+      "type": "CULTURAL",
+      "confidence": 0.9,
+      "reasoning": "Refers to a traditional hall or mansion, a cultural and architectural concept."
+    },
+    {
+      "type": "CULTURAL",
+      "confidence": 0.9,
+      "reasoning": "A young martial artist or warrior is a common character archetype in Wuxia, a cultural genre."
+    },
+    {
+      "type": "CULTURAL",
+      "confidence": 0.9,
+      "reasoning": "Repeated; same as above, a youthful martial hero archetype in Wuxia literature."
+    },
+    {
+      "type": "CULTURAL",
+      "confidence": 0.9,
+      "reasoning": "An idiom describing emotional or mental disengagement, a common literary expression."
+    },
+    {
+      "type": "CULTURAL",
+      "confidence": 0.9,
+      "reasoning": "Refers to a crowd or group of people, a basic social concept in Chinese culture."
+    },
+    {
+      "type": "CULTURAL",
+      "confidence": 0.9,
+      "reasoning": "Describes a gaze or stare, a common gesture with cultural significance in social or martial contexts."
+    },
+    {
+      "type": "CULTURAL",
+      "confidence": 0.9,
+      "reasoning": "A traditional piece of furniture, part of Chinese cultural heritage."
+    },
+    {
+      "type": "CULTURAL",
+      "confidence": 0.9,
+      "reasoning": "Refers to the Jin Dynasty, a historical state, thus a historical/cultural period."
+    },
+    {
+      "type": "CULTURAL",
+      "confidence": 0.9,
+      "reasoning": "Describes a metaphorical use of 'gold paper' to depict pallor, a literary device rooted in cultural imagery."
+    },
+    {
+      "type": "CULTURAL",
+      "confidence": 0.9,
+      "reasoning": "Refers to vital energy (氣), a fundamental concept in Chinese philosophy, medicine, and martial arts."
+    },
+    {
+      "type": "CULTURAL",
+      "confidence": 0.9,
+      "reasoning": "Describes whispering secretly, a common social behavior and literary motif."
+    },
+    {
+      "type": "CULTURAL",
+      "confidence": 0.9,
+      "reasoning": "A noble title indicating aristocratic or royal status, part of social hierarchy and titles."
+    },
+    {
+      "type": "CULTURAL",
+      "confidence": 0.9,
+      "reasoning": "Refers to a young man or youth, a common social and literary character archetype."
+    }
+  ]
+}

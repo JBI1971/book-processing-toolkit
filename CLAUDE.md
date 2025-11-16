@@ -12,12 +12,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Current Status**:
 - ✅ JSON Cleaner (implemented)
-- ✅ Post-Processing Tools (chapter alignment, TOC restructuring)
+- ✅ Post-Processing Tools (chapter alignment, TOC restructuring, embedded chapter detection)
 - ✅ Validation Tools (sanity checker, sequence validator, TOC alignment validator)
 - ✅ Content Structurer (implemented)
-- ✅ Batch Pipeline (6-stage processing with metadata enrichment)
-- 🚧 Translator (placeholder)
-- 🚧 Footnote Generator (placeholder)
+- ✅ Batch Pipeline (8-stage processing with metadata enrichment)
+- ✅ Translation Orchestration (7-stage pipeline with AI footnotes + cleanup)
+- ✅ Footnote Cleanup (AI-powered character name removal + deduplication)
 - 🚧 EPUB Builder (placeholder)
 
 ## Development Commands
@@ -42,10 +42,16 @@ python cli/structure.py --input cleaned.json --output structured.json --max-work
 # Structure validation (requires OPENAI_API_KEY for AI classification)
 python cli/validate_structure.py --input cleaned.json --output validation_report.json
 
+# Translation orchestration (7-stage pipeline with footnote cleanup)
+python scripts/orchestrate_translation_pipeline.py D1379  # Translate work D1379
+python scripts/orchestrate_translation_pipeline.py D1379 --volume a  # Specific volume
+python scripts/orchestrate_translation_pipeline.py D1379 --resume  # Resume from checkpoint
+
+# Standalone footnote cleanup (if needed separately)
+python cli/cleanup_character_footnotes.py --input translated.json --output-dir ./cleaned
+
 # Future processors (placeholders)
-python cli/translate.py --input structured.json --output translated.json --target-lang en
-python cli/footnotes.py --input translated.json --output with_footnotes.json --style chicago
-python cli/build_epub.py --input with_footnotes.json --output book.epub
+python cli/build_epub.py --input translated.json --output book.epub
 ```
 
 ### Testing
@@ -93,11 +99,13 @@ utils/
 ├── toc_alignment_validator.py   [IMPLEMENTED] OpenAI-powered TOC validation
 ├── fix_chapter_alignment.py     [IMPLEMENTED] Fix EPUB metadata mismatches
 ├── restructure_toc.py           [IMPLEMENTED] Convert TOC to structured navigation
+├── embedded_chapter_detector.py [IMPLEMENTED] Detect/extract chapters from intro sections
 ├── clients/                     [IMPLEMENTED] API wrappers (OpenAI, Anthropic)
 └── http/                        [IMPLEMENTED] HTTP with retry logic
 
 scripts/
-└── batch_process_books.py   [IMPLEMENTED] 6-stage pipeline with metadata enrichment
+├── batch_process_books.py   [IMPLEMENTED] 8-stage pipeline with metadata enrichment
+└── fix_embedded_chapter1.py [IMPLEMENTED] Standalone embedded chapter extractor
 
 ai/
 └── assistant_manager.py     [IMPLEMENTED] Manage OpenAI assistants
@@ -113,7 +121,7 @@ cli/
 
 ### Data Flow
 
-**Standard Batch Pipeline (6 Stages)**:
+**Standard Batch Pipeline (8 Stages)**:
 ```
 RAW INPUT (source JSON in individual directories)
    ↓
@@ -140,7 +148,16 @@ RAW INPUT (source JSON in individual directories)
    ↓
 CLEANED JSON (discrete blocks + metadata)
    ↓
-[Stage 4] utils/fix_chapter_alignment.py
+[Stage 4] utils/embedded_chapter_detector.py
+   → Detect chapters embedded in introduction/title pages
+   → Extract ANY chapter marker (一、二、三... 廿、卅、卌... 第N章/回)
+   → Works for any starting chapter number (not limited to Chapter 1)
+   → Handles multi-volume works with different numbering schemes
+   → Creates new chapter, renumbers existing, updates TOC
+   → Removes chapter content from introduction section
+   → Non-fatal (continues on errors)
+   ↓
+[Stage 5] utils/fix_chapter_alignment.py
    → Fix EPUB metadata mismatches
    → Match chapter titles to actual content headings
    → Support 第N回 (hui) and 第N章 (zhang) formats
@@ -148,7 +165,7 @@ CLEANED JSON (discrete blocks + metadata)
    → Split combined chapters
    → Deterministic, pattern-based
    ↓
-[Stage 5] utils/restructure_toc.py
+[Stage 6] utils/restructure_toc.py
    → Convert TOC from text blob to structured list
    → Create chapter references for EPUB navigation
    → Handle blob format (space-separated entries)
@@ -156,7 +173,7 @@ CLEANED JSON (discrete blocks + metadata)
    → Support Chinese numerals including 廿/卅/卌
    → Fuzzy matching for variants
    ↓
-[Stage 6] Comprehensive Validation (3 validators)
+[Stage 7] Comprehensive Validation (3 validators)
    → batch_process_books.py orchestrates multiple validators:
 
    A. processors/structure_validator.py
@@ -180,22 +197,90 @@ CLEANED JSON (discrete blocks + metadata)
    → Results merged with error/warning categorization
    → Requires OPENAI_API_KEY for validators A & B
    ↓
-VALIDATED JSON (ready for downstream processing)
+VALIDATED JSON (ready for translation)
+```
+
+**Translation Orchestration Pipeline (7 Stages)**:
+```
+CLEANED & VALIDATED JSON
    ↓
-processors/content_structurer.py [OPTIONAL]
-   → Chunk text if >4000 chars (200-char overlap)
-   → OpenAI Assistant API via threads
-   → Semantic classification (narrative, dialogue, verse...)
-   → Schema validation
-   → Retry logic (3 attempts, 2s delay, 300s timeout)
+scripts/orchestrate_translation_pipeline.py
    ↓
-processors/translator.py [TODO]
-   → AI-powered translation
-   → Preserve structure
+[Stage 1] METADATA Translation
+   → Translate title, author, publisher
+   → NO footnotes (clean metadata only)
+   → Output: Translated meta block
    ↓
-processors/footnote_generator.py [TODO]
-   → Cultural/historical notes
-   → Pronunciation guides
+[Stage 2] TOC Translation
+   → Translate table of contents entries
+   → NO footnotes (clean navigation)
+   → Preserve chapter references
+   ↓
+[Stage 3] HEADINGS Translation
+   → Translate chapter titles/headings
+   → NO footnotes (clean headings)
+   → Sequential processing
+   ↓
+[Stage 4] BODY Translation
+   → Translate main content blocks
+   → WITH cultural/historical footnotes
+   → AI-powered footnote generation:
+     • Character names with pinyin (Yáng Lùchán[1])
+     • Cultural concepts (氣[2] - vital energy)
+     • Historical references
+     • Martial arts terminology
+   → Parallel processing (configurable workers)
+   → Checkpoint/resume support
+   ↓
+[Stage 5] SPECIAL SECTIONS Translation
+   → Translate front_matter/back_matter
+   → WITH footnotes for cultural content
+   → Prefaces, afterwords, appendices
+   ↓
+[Stage 6] FOOTNOTE PROCESSING ✨
+   → Multiple cleanup stages process footnotes sequentially
+   → ALL stages require work-level processing (entire work at once)
+   → Footnote renumbering after each stage maintains consistency
+
+   [6a] CHARACTER FOOTNOTE CLEANUP [INTEGRATED - AUTOMATIC]
+   → AI classification (OpenAI GPT-4.1-nano)
+   → Remove fictional character footnotes
+     Examples removed: 魯世雄 (404×), 完顏長之 (160×)
+   → Preserve historical figures (康熙帝, 孔子, 李白)
+   → Preserve legendary personages (關羽, 觀音)
+   → Preserve cultural notes (氣, 內功, 金國)
+   → Work-wide deduplication (keep only first occurrence)
+   → Typical reduction: 50-60% of footnotes
+   → Configuration: --skip-character-footnote-cleanup
+
+   [6b] DUPLICATE TERM CLEANUP [SCRIPT GENERATOR - MANUAL]
+   → Use footnote-deduplicator agent to generate scripts
+   → Removes duplicate cultural term explanations
+   → Agent generates (does NOT execute):
+     • exact_match_deletion.py
+     • candidate_analysis.py
+     • ai_assisted_deletion.py
+     • validation_suite.py
+   → You review and run scripts manually
+   → Additional ~10-20% reduction
+
+   [6c-6z] FUTURE FOOTNOTE STAGES [RESERVED]
+   → Cross-reference consolidation
+   → Redundant pinyin cleanup
+   → Footnote length optimization
+   → Custom cleanup rules
+   → Each stage maintains work-level processing
+   ↓
+[Stage 7] VALIDATION
+   → Verify translation completeness
+   → Check footnote marker integrity
+   → Quality scoring
+   → Generate final report
+   ↓
+TRANSLATED JSON (ready for EPUB)
+   → English translation with optimized footnotes
+   → WIP files saved for each stage
+   → Detailed logs and progress reports
    ↓
 processors/epub_builder.py [TODO]
    → EPUB 3.0 generation
@@ -203,6 +288,61 @@ processors/epub_builder.py [TODO]
    ↓
 FINAL EPUB FILE
 ```
+
+### Translation Orchestration Commands
+
+**Basic Usage**:
+```bash
+# Translate single work
+python scripts/orchestrate_translation_pipeline.py D1379
+
+# Translate specific volume
+python scripts/orchestrate_translation_pipeline.py I1046 --volume a
+
+# Resume from checkpoint (if interrupted)
+python scripts/orchestrate_translation_pipeline.py D1379 --resume
+
+# Process specific stages only
+python scripts/orchestrate_translation_pipeline.py D1379 --start-stage 4 --end-stage 6
+
+# Dry run (no file writes)
+python scripts/orchestrate_translation_pipeline.py D1379 --dry-run
+```
+
+**Output Structure**:
+```
+/Users/jacki/project_files/translation_project/
+├── wip/                                    # Work-in-progress files
+│   ├── stage_1_metadata/
+│   ├── stage_2_toc/
+│   ├── stage_3_headings/
+│   ├── stage_4_body/
+│   ├── stage_5_special/
+│   ├── stage_6_cleanup/                   # After footnote cleanup
+│   └── stage_7_validation/
+├── translation_data/
+│   ├── translated_D1379_偷拳_白羽.json   # Final output
+│   └── logs/
+│       ├── D1379_translation.log          # Main translation log
+│       ├── D1379_stage_1_metadata.json    # Stage-specific logs
+│       ├── D1379_stage_2_toc.json
+│       ├── D1379_stage_3_headings.json
+│       ├── D1379_stage_4_body.json
+│       ├── D1379_stage_5_special.json
+│       ├── D1379_stage_6_cleanup.json     # Footnote cleanup details
+│       ├── D1379_stage_7_validation.json
+│       └── checkpoints/
+│           └── D1379_checkpoint.json      # Resume checkpoint
+```
+
+**Footnote Cleanup Results** (Stage 6):
+- Classification log includes removed vs preserved breakdown
+- Example metrics:
+  - Total footnotes: 3,876
+  - Fictional characters removed: 2,054 (53%)
+  - Cultural/historical preserved: 1,822
+  - Work-wide duplicates removed: ~1,063
+  - Final unique footnotes: ~800
 
 ## Key Implementation Details
 
@@ -355,9 +495,57 @@ result = fixer.fix_chapter_alignment_in_file('cleaned_book.json')
 # Modifies file in-place, returns fix count
 ```
 
+### Embedded Chapter Detector (utils/embedded_chapter_detector.py)
+
+**Purpose**: Detect and extract chapters embedded in introduction/title pages (Stage 4)
+
+**Problem Addressed**: In Chinese novels, the first chapter of EACH volume is often embedded within the title page or introduction section, not properly separated into the body chapters.
+
+**What It Detects**:
+- ANY Chinese chapter marker (一、二、三... 廿、卅、卌... 第N章/回)
+- Works for any starting chapter number (not limited to Chapter 1)
+- Handles multi-volume works with different numbering schemes:
+  - Reset per volume (Vol 1: 1-20, Vol 2: 1-20)
+  - Continuous across volumes (Vol 1: 1-20, Vol 2: 21-40)
+  - Irregular numbering (Vol 3 starts at 31 instead of 41)
+
+**What It Does**:
+1. Scans introduction sections for chapter markers
+2. Extracts chapter content blocks from introduction
+3. Creates new chapter with proper ID and ordinal
+4. Renumbers existing chapters if necessary
+5. Updates TOC to include extracted chapter
+6. Removes chapter content from introduction section
+
+**Classes**:
+- `EmbeddedChapterDetector` - Main detector with extraction logic
+- Convenience function: `detect_embedded_chapters(data)` for external callers
+
+**Key Methods**:
+```python
+def find_embedded_chapter(intro_section) -> Optional[int]:
+    """Find block index where chapter starts (any chapter number)"""
+
+def detect_and_extract(data) -> Tuple[Dict, bool]:
+    """Main entry point - returns (modified_data, was_modified)"""
+```
+
+**Usage**:
+```python
+from utils.embedded_chapter_detector import detect_embedded_chapters
+
+modified_data, was_modified = detect_embedded_chapters(cleaned_json)
+if was_modified:
+    print(f"Extracted chapter from introduction")
+```
+
+**Integration**: Automatically runs as Stage 4 in batch processing pipeline.
+
+**Standalone Script**: `scripts/fix_embedded_chapter1.py` available for manual fixes outside pipeline.
+
 ### TOC Restructurer (utils/restructure_toc.py)
 
-**Purpose**: Convert TOC from text blob to structured navigation (Stage 5)
+**Purpose**: Convert TOC from text blob to structured navigation (Stage 6)
 
 **What It Does**:
 - Parses space-separated TOC entries from blob format
@@ -433,7 +621,7 @@ python utils/toc_body_count_validator.py input.json --use-alignment
 python utils/toc_body_count_validator.py input.json --save-report
 ```
 
-**Integration**: Automatically runs as part of Stage 6 validation in batch processing pipeline.
+**Integration**: Automatically runs as part of Stage 7 validation in batch processing pipeline.
 
 ### TOC Alignment Validator (utils/toc_alignment_validator.py)
 
@@ -457,7 +645,7 @@ python utils/toc_body_count_validator.py input.json --save-report
 
 **API Call Pattern**:
 ```python
-validator = TOCAlignmentValidator(model='gpt-4o-mini', temperature=0.1)
+validator = TOCAlignmentValidator(model='gpt-4.1-nano', temperature=0.1)
 result = validator.validate(cleaned_json)
 # Returns: AlignmentResult with issues, confidence_score, summary
 ```
@@ -471,7 +659,7 @@ result = validator.validate(cleaned_json)
 
 ### Comprehensive TOC/Chapter Validator (utils/toc_chapter_validator.py)
 
-**Purpose**: Advanced validation that extracts actual chapter headings from content_blocks (Stage 6 - enhanced)
+**Purpose**: Advanced validation that extracts actual chapter headings from content_blocks (Stage 7 - enhanced)
 
 **Key Innovation**: Unlike the basic validator above, this validator extracts the **actual heading from content_blocks** to detect when:
 - Book metadata is incorrectly treated as a chapter
@@ -535,7 +723,7 @@ report = validator.validate_file('cleaned_book.json', save_report=True)
 **AI Validation**:
 - Only used for ambiguous title mismatches
 - Batch processing (10 pairs per call)
-- Model: gpt-4o-mini, temperature: 0.1
+- Model: gpt-4.1-nano, temperature: 0.1
 - Classifies mismatches as: real_mismatch, minor_difference, transcription_error
 - Provides suggested fixes for typos
 
@@ -562,7 +750,7 @@ ISSUES FOUND (2):
 ```
 
 **Integration**:
-- Used in `batch_process_books.py` as part of Stage 6 validation
+- Used in `batch_process_books.py` as part of Stage 7 validation
 - CLI available: `scripts/validate_toc_chapter_alignment.py`
 - Generates detailed JSON reports for debugging
 
@@ -632,7 +820,7 @@ messages = client.beta.threads.messages.list(thread_id)
 **AI Classification Pattern**:
 ```python
 # Uses OpenAI to semantically analyze chapter titles
-validator = StructureValidator(model="gpt-4o-mini", temperature=0.3)
+validator = StructureValidator(model="gpt-4.1-nano", temperature=0.3)
 result = validator.validate(cleaned_json_data)
 
 # Graceful degradation: Falls back to basic validation if AI fails
@@ -724,13 +912,13 @@ export ANTHROPIC_API_KEY=your-key-here     # Optional alternative
 - chunk_overlap: 200 chars
 
 **structure_validator.py**:
-- model: "gpt-4o-mini"
+- model: "gpt-4.1-nano"
 - temperature: 0.3 (low for consistent validation)
 - timeout: 60s (1 min)
 - save_report: True (generates validation JSON)
 
 **toc_alignment_validator.py**:
-- model: "gpt-4o-mini"
+- model: "gpt-4.1-nano"
 - temperature: 0.1 (very low for consistency)
 - batch_size: 20 (TOC/chapter pairs per API call)
 
@@ -923,6 +1111,44 @@ Checks:
 
 ## Known Issues and Limitations
 
+### Embedded First Chapter Pattern (Per Volume)
+
+**Status**: ✅ **RESOLVED** - Now handled automatically by Stage 4 of batch processing pipeline
+
+**Pattern**: First chapter of a volume embedded in title/introduction page
+
+**Common in Chinese novels**: The first chapter of EACH volume is often embedded within what appears to be a title page or introduction section.
+
+**Examples**:
+- Volume 1: First chapter (typically "一、...") embedded in title page
+- Volume 2: First chapter (could be "一、..." if reset, or "廿一、..." if continuing)
+- Volume 3: First chapter (could be "三十一、...", "卅一、...", "一、..." depending on numbering scheme)
+
+**Note**: Chapter numbering varies by work:
+- Some reset to Chapter 1 per volume
+- Some continue across volumes (Vol 1: 1-20, Vol 2: 21-40)
+- Some have irregular numbering (Vol 3 might start at 31, not 41)
+
+**Automatic Solution**: As of integration update, this is now handled automatically by:
+- **Stage 4**: `utils/embedded_chapter_detector.py` in batch processing pipeline
+- Runs automatically after JSON cleaning, before chapter alignment
+- No manual intervention required
+
+**Manual Solution** (if needed outside pipeline):
+Use `scripts/fix_embedded_chapter1.py` standalone script to:
+1. Extract first chapter from introduction/title page (regardless of chapter number)
+2. Create proper chapter in body.chapters
+3. Update TOC to include the extracted chapter
+4. Clean introduction section (remove story content)
+
+**Detection Capabilities**:
+- ANY Chinese chapter markers (一、二、三... 廿、卅、卌... 第N章/回)
+- Multiple possible intro locations (front_matter.introduction, front_matter.sections, etc.)
+- Content boundaries between intro metadata and story content
+- Works for any starting chapter number (not limited to Chapter 1)
+
+**Multi-Volume Works**: Each volume file is processed separately, with automatic detection for each
+
 ### Chapter Alignment Fixer
 
 **Issue**: Assumes books start at Chapter 1
@@ -959,6 +1185,17 @@ Checks:
 - `restructure_toc.py` uses careful pattern matching
 - Avoids over-splitting on internal spaces in chapter titles
 - Supports both blob format and structured format
+
+## Git Workflow
+
+**IMPORTANT**: Git commits should ONLY be created when explicitly requested by the user.
+
+- Do NOT create commits automatically after completing tasks
+- Do NOT commit changes unless the user specifically asks you to
+- Always ask the user if they want changes committed to git
+- Wait for explicit confirmation before running git commands
+
+When the user does request a commit, follow the standard git commit protocol as documented in the project guidelines.
 
 ## Roadmap Awareness
 

@@ -19,8 +19,6 @@ from pathlib import Path
 from datetime import datetime
 from typing import Dict, Any, List, Optional
 
-# Add parent directory to path
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from processors.translation_config import TranslationConfig, WorkProgress, setup_logging
 from processors.volume_manager import VolumeManager
@@ -238,7 +236,7 @@ class WorkTranslationOrchestrator:
                 'failed_blocks': total_blocks - successful_blocks,
                 'success_rate': (successful_blocks / total_blocks * 100) if total_blocks > 0 else 0,
                 'total_tokens': total_tokens,
-                'estimated_cost_usd': total_tokens * 0.00015 / 1000  # GPT-4o-mini pricing
+                'estimated_cost_usd': total_tokens * 0.00015 / 1000  # GPT-4.1-nano pricing
             },
             'errors': all_errors,
             'volume_reports': self.volume_reports,
@@ -322,8 +320,8 @@ Examples:
 
     parser.add_argument(
         '--model',
-        default='gpt-4o-mini',
-        help='OpenAI model to use (default: gpt-4o-mini)'
+        default='gpt-4.1-nano',
+        help='OpenAI model to use (default: gpt-4.1-nano)'
     )
 
     parser.add_argument(

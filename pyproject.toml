@@ -38,6 +38,9 @@ dev = [
     "flake8>=6.0.0",
     "mypy>=1.0.0",
 ]
+env = [
+    "python-dotenv>=1.0.0",  # For .env file support
+]
 
 [project.scripts]
 book-clean = "cli.clean:main"

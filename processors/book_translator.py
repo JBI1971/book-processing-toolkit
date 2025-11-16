@@ -17,10 +17,9 @@ from pathlib import Path
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from threading import Lock
 from tqdm import tqdm
 
-# Add parent directory to path for imports
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from processors.translator import TranslationService, TranslationRequest
 from processors.translation_config import (
@@ -63,6 +62,10 @@ class BookTranslator:
         self.total_tokens = 0
         self.errors = []
         self.warnings = []
+
+        # Thread-safe locks
+        self._state_lock = Lock()  # For shared state updates
+        self._file_lock = Lock()  # For file I/O
 
     def translate_book(
         self,
@@ -115,6 +118,11 @@ class BookTranslator:
 
         book_logger.info(f"Found {len(chapters)} chapters to translate")
 
+        # Initialize progress tracking
+        self._total_chapters = len(chapters)
+        self._chapter_progress_list = []
+        self._current_chapter_progress = None
+
         # Load checkpoint if resuming
         checkpoint = self._load_checkpoint(work_number, volume)
         completed_chapter_ids = set(checkpoint.get('completed_chapters', []))
@@ -141,12 +149,30 @@ class BookTranslator:
             book_logger.info(f"Translating chapter {i+1}/{len(chapters)}: {chapter.get('title', 'Untitled')}")
 
             try:
-                translated_chapter, chapter_report = self._translate_chapter(chapter, book_logger)
+                # Update current chapter progress
+                self._current_chapter_progress = {
+                    'chapter_id': chapter_id,
+                    'chapter_number': i + 1,
+                    'title': chapter.get('title', 'Untitled'),
+                    'total_blocks': len(chapter.get('content_blocks', [])),
+                    'completed_blocks': 0
+                }
+
+                translated_chapter, chapter_report = self._translate_chapter(
+                    chapter,
+                    book_logger,
+                    output_path=output_path,
+                    book_data=book_data
+                )
                 translated_chapters.append(translated_chapter)
                 chapter_reports.append(chapter_report)
 
                 total_blocks += chapter_report['total_blocks']
                 successful_blocks += chapter_report['successful_blocks']
+
+                # Update current chapter progress to completed
+                self._current_chapter_progress['completed_blocks'] = chapter_report['successful_blocks']
+                self._chapter_progress_list.append(self._current_chapter_progress.copy())
 
                 # Save checkpoint
                 if self.config.save_checkpoints:
@@ -217,19 +243,77 @@ class BookTranslator:
         book_logger.info(f"Duration: {duration/60:.1f} minutes")
         book_logger.info(f"Tokens used: {self.total_tokens:,}")
 
-        return report.to_dict()
+        # Save report to file
+        report_dict = report.to_dict()
+        if not self.config.dry_run:
+            report_filename = f"translation_report_{work_number}"
+            if volume:
+                report_filename += f"_{volume}"
+            report_filename += ".json"
+
+            report_path = self.config.output_dir / report_filename
+            report_path.parent.mkdir(parents=True, exist_ok=True)
+
+            with open(report_path, 'w', encoding='utf-8') as f:
+                json.dump(report_dict, f, ensure_ascii=False, indent=2)
+
+            book_logger.info(f"Saved translation report to {report_path}")
+
+        return report_dict
+
+    def _translate_block(
+        self,
+        block: Dict[str, Any],
+        block_index: int,
+        chapter_id: str
+    ) -> tuple[str, Any, Optional[Exception]]:
+        """
+        Translate a single block (thread-safe helper).
+
+        Args:
+            block: Content block to translate
+            block_index: Index of block for tracking
+            chapter_id: Parent chapter ID for error reporting
+
+        Returns:
+            Tuple of (block_id, translation_response, error)
+        """
+        block_id = block.get('id', f'block_{block_index}')
+
+        try:
+            # Prepare translation request
+            request = TranslationRequest(
+                content_text_id=block_index + 1,
+                content_source_text=block['content']
+            )
+
+            # Translate
+            response = self.translation_service.translate(request)
+
+            # Rate limiting (per block)
+            time.sleep(self.config.rate_limit_delay)
+
+            return (block_id, response, None)
+
+        except Exception as e:
+            logger.error(f"Failed to translate block {block_id}: {e}")
+            return (block_id, None, e)
 
     def _translate_chapter(
         self,
         chapter: Dict[str, Any],
-        logger: logging.Logger
+        logger: logging.Logger,
+        output_path: Optional[Path] = None,
+        book_data: Optional[Dict[str, Any]] = None
     ) -> tuple[Dict[str, Any], Dict[str, Any]]:
         """
-        Translate a single chapter.
+        Translate a single chapter with parallel block processing.
 
         Args:
             chapter: Chapter data with content_blocks
             logger: Logger instance
+            output_path: Output file path for incremental saves
+            book_data: Complete book data for incremental saves
 
         Returns:
             Tuple of (translated_chapter, chapter_report)
@@ -257,45 +341,72 @@ class BookTranslator:
             and block.get('content', '').strip()
         ]
 
-        logger.info(f"Translating {len(translatable_blocks)}/{len(content_blocks)} blocks")
+        logger.info(f"Translating {len(translatable_blocks)}/{len(content_blocks)} blocks in parallel")
 
-        # Translate blocks
-        translated_blocks = []
+        # Translate blocks in parallel using ThreadPoolExecutor
         block_id_to_translation = {}
 
-        for block in tqdm(translatable_blocks, desc=f"  {chapter_title[:30]}", leave=False):
-            block_id = block.get('id', f'block_{len(translated_blocks)}')
+        # Create index mapping for blocks
+        block_to_index = {
+            block.get('id', f'block_{i}'): i
+            for i, block in enumerate(translatable_blocks)
+        }
 
-            try:
-                # Prepare translation request
-                request = TranslationRequest(
-                    content_text_id=len(translated_blocks) + 1,
-                    content_source_text=block['content']
-                )
+        with ThreadPoolExecutor(max_workers=self.config.max_concurrent_chapters) as executor:
+            # Submit all translation tasks
+            future_to_block = {
+                executor.submit(
+                    self._translate_block,
+                    block,
+                    block_to_index[block.get('id', f'block_{i}')],
+                    chapter_id
+                ): block
+                for i, block in enumerate(translatable_blocks)
+            }
 
-                # Translate
-                response = self.translation_service.translate(request)
+            # Process completed translations with progress bar
+            for future in tqdm(
+                as_completed(future_to_block),
+                total=len(future_to_block),
+                desc=f"  {chapter_title[:30]}",
+                leave=False
+            ):
+                block = future_to_block[future]
+                block_id, translation_response, error = future.result()
 
-                # Track tokens (approximate)
-                self.total_tokens += len(block['content']) + len(response.translated_annotated_content.annotated_content_text)
-                progress.token_usage += len(block['content'])
+                if error:
+                    # Translation failed
+                    with self._state_lock:
+                        progress.failed_blocks.append(block_id)
+                        self.warnings.append({
+                            'chapter_id': chapter_id,
+                            'block_id': block_id,
+                            'error': str(error)
+                        })
+                else:
+                    # Translation successful
+                    with self._state_lock:
+                        # Track tokens (approximate)
+                        token_count = len(block['content']) + len(
+                            translation_response.translated_annotated_content.annotated_content_text
+                        )
+                        self.total_tokens += token_count
+                        progress.token_usage += len(block['content'])
 
-                # Store translation
-                block_id_to_translation[block_id] = response
+                        # Store translation
+                        block_id_to_translation[block_id] = translation_response
+                        progress.completed_blocks += 1
 
-                progress.completed_blocks += 1
-
-                # Rate limiting
-                time.sleep(self.config.rate_limit_delay)
-
-            except Exception as e:
-                logger.error(f"Failed to translate block {block_id}: {e}")
-                progress.failed_blocks.append(block_id)
-                self.warnings.append({
-                    'chapter_id': chapter_id,
-                    'block_id': block_id,
-                    'error': str(e)
-                })
+                    # Incremental save after each block completes
+                    if output_path and book_data:
+                        # Update the book_data with current translations
+                        self._update_chapter_in_book_data(
+                            book_data,
+                            chapter_id,
+                            content_blocks,
+                            block_id_to_translation
+                        )
+                        self._save_incremental_progress(output_path, book_data)
 
         # Update chapter with translations
         translated_chapter = chapter.copy()
@@ -368,22 +479,116 @@ class BookTranslator:
         return {}
 
     def _save_checkpoint(self, work_number: str, volume: Optional[str], completed_chapters: List[str]):
-        """Save checkpoint file"""
+        """Save checkpoint file with enhanced progress tracking"""
         checkpoint_path = get_checkpoint_path(self.config, work_number, volume)
 
         try:
+            # Build enhanced checkpoint with chapter progress details
             checkpoint_data = {
                 'work_number': work_number,
                 'volume': volume,
+                'total_chapters': self._total_chapters if hasattr(self, '_total_chapters') else len(completed_chapters),
                 'completed_chapters': completed_chapters,
                 'timestamp': datetime.now().isoformat()
             }
+
+            # Add current chapter details if available
+            if hasattr(self, '_current_chapter_progress') and self._current_chapter_progress:
+                checkpoint_data['current_chapter'] = self._current_chapter_progress
+
+            # Add chapter progress list if available
+            if hasattr(self, '_chapter_progress_list') and self._chapter_progress_list:
+                checkpoint_data['chapter_progress'] = [
+                    prog.to_dict() if hasattr(prog, 'to_dict') else prog
+                    for prog in self._chapter_progress_list
+                ]
 
             with open(checkpoint_path, 'w', encoding='utf-8') as f:
                 json.dump(checkpoint_data, f, ensure_ascii=False, indent=2)
 
         except Exception as e:
             logger.warning(f"Could not save checkpoint: {e}")
+
+    def _update_chapter_in_book_data(
+        self,
+        book_data: Dict[str, Any],
+        chapter_id: str,
+        content_blocks: List[Dict[str, Any]],
+        block_id_to_translation: Dict[str, Any]
+    ):
+        """
+        Update a chapter's content blocks in the book data with current translations.
+
+        Args:
+            book_data: Complete book data structure
+            chapter_id: ID of chapter to update
+            content_blocks: Original content blocks
+            block_id_to_translation: Mapping of block IDs to translation responses
+        """
+        # Find the chapter in the book data
+        chapters = book_data.get('structure', {}).get('body', {}).get('chapters', [])
+
+        for chapter in chapters:
+            if chapter.get('id') == chapter_id:
+                # Build translated content blocks
+                translated_content_blocks = []
+
+                for block in content_blocks:
+                    block_id = block.get('id')
+                    translation = block_id_to_translation.get(block_id)
+
+                    if translation:
+                        # Create translated block
+                        translated_block = {
+                            'id': block_id,
+                            'type': block.get('type'),
+                            'original_content': block['content'],
+                            'translated_content': translation.translated_annotated_content.annotated_content_text,
+                            'footnotes': [
+                                {
+                                    'key': fn.footnote_key,
+                                    'ideogram': fn.footnote_details.footnote_ideogram,
+                                    'pinyin': fn.footnote_details.footnote_pinyin,
+                                    'explanation': fn.footnote_details.footnote_explanation
+                                }
+                                for fn in translation.translated_annotated_content.content_footnotes
+                            ],
+                            'content_type': translation.translated_annotated_content.content_type,
+                            'epub_id': block.get('epub_id'),
+                            'metadata': block.get('metadata', {})
+                        }
+                    else:
+                        # Keep original block if not yet translated
+                        translated_block = block
+
+                    translated_content_blocks.append(translated_block)
+
+                # Update chapter's content blocks
+                chapter['content_blocks'] = translated_content_blocks
+                break
+
+    def _save_incremental_progress(
+        self,
+        output_path: Path,
+        book_data: Dict[str, Any]
+    ):
+        """
+        Save current translation progress to file (thread-safe).
+
+        Args:
+            output_path: Output file path
+            book_data: Current book data with partial translations
+        """
+        if self.config.dry_run:
+            return
+
+        with self._file_lock:
+            try:
+                output_path.parent.mkdir(parents=True, exist_ok=True)
+                with open(output_path, 'w', encoding='utf-8') as f:
+                    json.dump(book_data, f, ensure_ascii=False, indent=2)
+            except Exception as e:
+                logger.warning(f"Failed to save incremental progress: {e}")
 
     def _create_error_report(self, work_number: str, error: str, start_time: datetime) -> Dict[str, Any]:
         """Create error report"""

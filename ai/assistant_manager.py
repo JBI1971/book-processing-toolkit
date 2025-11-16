@@ -38,7 +38,7 @@ class TranslationAssistantManager:
         instructions: str,
         description: str,
         schema: Optional[Dict] = None,
-        model: str = "gpt-4o-mini",
+        model: str = "gpt-4.1-nano",
         version: str = "v1",
         temperature: float = 0.7,
         metadata: Optional[Dict] = None

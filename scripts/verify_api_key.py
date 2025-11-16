@@ -8,10 +8,7 @@ This should be run before executing the batch processing pipeline.
 
 import sys
 import os
-from pathlib import Path
 
-# Add parent directory to path
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from utils.load_env_creds import load_env_credentials, get_openai_api_key, verify_openai_key
 

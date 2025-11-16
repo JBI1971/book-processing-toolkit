@@ -11,6 +11,23 @@ from pathlib import Path
 from typing import Optional, List, Dict, Any
 import logging
 
+# Import environment configuration
+try:
+    from utils.environment_config import get_or_create_env_config, EnvironmentConfig
+    _ENV_CONFIG_AVAILABLE = True
+except ImportError:
+    _ENV_CONFIG_AVAILABLE = False
+    EnvironmentConfig = None
+
+# Import path management
+try:
+    from utils.path_manager import PathManager, PathConfig, create_path_manager_from_env
+    _PATH_MANAGER_AVAILABLE = True
+except ImportError:
+    _PATH_MANAGER_AVAILABLE = False
+    PathManager = None
+    PathConfig = None
+
 logger = logging.getLogger(__name__)
 
 
@@ -19,7 +36,7 @@ class TranslationConfig:
     """Configuration for translation pipeline"""
 
     # API Configuration
-    model: str = "gpt-4o-mini"
+    model: str = "gpt-4.1-nano"
     temperature: float = 0.3
     max_retries: int = 3
     timeout: int = 120
@@ -29,11 +46,11 @@ class TranslationConfig:
     batch_size: int = 10  # Blocks per batch
     max_concurrent_chapters: int = 3  # Parallel chapter processing
 
-    # Input/Output
-    source_dir: Path = Path("/Users/jacki/project_files/translation_project/test_cleaned_json_v2/COMPLETE_ALL_BOOKS")
-    output_dir: Path = Path("/Users/jacki/project_files/translation_project/translated_books")
-    catalog_path: Path = Path("/Users/jacki/project_files/translation_project/wuxia_catalog.db")
-    log_dir: Path = Path("./logs/translation")
+    # Input/Output (can be overridden, defaults loaded from environment)
+    source_dir: Optional[Path] = None
+    output_dir: Optional[Path] = None
+    catalog_path: Optional[Path] = None
+    log_dir: Optional[Path] = None
 
     # Processing Options
     dry_run: bool = False
@@ -55,8 +72,51 @@ class TranslationConfig:
     verbose: bool = False
     save_token_usage: bool = True
 
+    # Internal: PathManager instance (initialized in __post_init__)
+    path_manager: Optional['PathManager'] = field(default=None, init=False, repr=False)
+
     def __post_init__(self):
-        """Ensure paths are Path objects"""
+        """
+        Initialize paths from environment if not provided.
+
+        Paths can be explicitly set, or will be loaded from EnvironmentConfig
+        (which reads from .env or environment variables).
+        """
+        # Load environment config if paths not provided
+        if _ENV_CONFIG_AVAILABLE and (
+            self.source_dir is None or
+            self.output_dir is None or
+            self.catalog_path is None or
+            self.log_dir is None
+        ):
+            env_config = get_or_create_env_config()
+
+            # Use environment config for any unset paths
+            if self.source_dir is None:
+                self.source_dir = env_config.source_dir
+            if self.output_dir is None:
+                self.output_dir = env_config.output_dir
+            if self.catalog_path is None:
+                self.catalog_path = env_config.catalog_path
+            if self.log_dir is None:
+                self.log_dir = env_config.log_dir
+
+            logger.debug("Loaded paths from environment configuration")
+        else:
+            # Fallback to hardcoded defaults if environment config not available
+            if self.source_dir is None:
+                self.source_dir = Path("/Users/jacki/project_files/translation_project/cleaned/COMPLETE_ALL_BOOKS")
+            if self.output_dir is None:
+                self.output_dir = Path("/Users/jacki/project_files/translation_project/translated_books")
+            if self.catalog_path is None:
+                self.catalog_path = Path("/Users/jacki/project_files/translation_project/wuxia_catalog.db")
+            if self.log_dir is None:
+                self.log_dir = Path("./logs/translation")
+
+            if not _ENV_CONFIG_AVAILABLE:
+                logger.warning("EnvironmentConfig not available, using hardcoded defaults")
+
+        # Ensure paths are Path objects
         self.source_dir = Path(self.source_dir)
         self.output_dir = Path(self.output_dir)
         self.catalog_path = Path(self.catalog_path)
@@ -65,6 +125,20 @@ class TranslationConfig:
         # Create output directories
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.log_dir.mkdir(parents=True, exist_ok=True)
+
+        # Initialize PathManager if available
+        if _PATH_MANAGER_AVAILABLE:
+            path_config = PathConfig(
+                source_dir=self.source_dir,
+                output_dir=self.output_dir,
+                catalog_path=self.catalog_path,
+                log_dir=self.log_dir
+            )
+            self.path_manager = PathManager(path_config)
+            logger.debug("PathManager initialized")
+        else:
+            self.path_manager = None
+            logger.debug("PathManager not available, using direct path methods")
 
 
 @dataclass
@@ -206,6 +280,11 @@ def get_output_path(
         >>> get_output_path(config, "D55", "001", "射鵰英雄傳一_金庸.json")
         Path('/output/translated/D55/translated_D55_001_射鵰英雄傳一_金庸.json')
     """
+    # Use PathManager if available
+    if config.path_manager:
+        return config.path_manager.get_output_path(work_number, volume, filename, create_dir=True)
+
+    # Fallback to original implementation
     # Create work-specific directory
     work_dir = config.output_dir / work_number
     work_dir.mkdir(parents=True, exist_ok=True)
@@ -238,6 +317,11 @@ def get_checkpoint_path(
     Returns:
         Path to checkpoint file
     """
+    # Use PathManager if available
+    if config.path_manager:
+        return config.path_manager.get_checkpoint_path(work_number, volume)
+
+    # Fallback to original implementation
     checkpoint_dir = config.log_dir / "checkpoints"
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
@@ -264,6 +348,11 @@ def get_log_path(
     Returns:
         Path to log file
     """
+    # Use PathManager if available
+    if config.path_manager:
+        return config.path_manager.get_log_path(work_number, volume, log_type)
+
+    # Fallback to original implementation
     if volume:
         return config.log_dir / f"{work_number}_{volume}_{log_type}.log"
     return config.log_dir / f"{work_number}_{log_type}.log"

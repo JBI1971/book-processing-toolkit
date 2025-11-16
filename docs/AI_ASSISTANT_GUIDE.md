@@ -78,7 +78,7 @@ class TranslationAssistantManager:
         self.client = OpenAI(api_key=api_key or os.environ.get("OPENAI_API_KEY"))
 
     def create_assistant(self, name, instructions, description,
-                        schema=None, model="gpt-4o-mini", version="v1"):
+                        schema=None, model="gpt-4.1-nano", version="v1"):
         """
         Create new translation assistant and store config locally.
 
@@ -433,7 +433,7 @@ def main():
         instructions="assistant_configs/instructions/markdown_formatter.md",
         description="Stage 2: Format translated text as Chicago-style markdown",
         schema=load_schema("assistant_configs/schemas/markdown_schema.json"),
-        model="gpt-4o-mini",  # Cheaper for formatting
+        model="gpt-4.1-nano",  # Cheaper for formatting
         version="v1"
     )
     print(f"  Created: {markdown_config['assistant_id']}")
@@ -444,7 +444,7 @@ def main():
         name="cleanup",
         instructions="assistant_configs/instructions/cleanup.md",
         description="Stage 3: Final grammar and punctuation cleanup",
-        model="gpt-4o-mini",
+        model="gpt-4.1-nano",
         version="v1"
     )
     print(f"  Created: {cleanup_config['assistant_id']}")

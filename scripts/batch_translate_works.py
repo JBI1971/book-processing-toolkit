@@ -23,13 +23,10 @@ import sys
 import json
 import argparse
 import logging
-from pathlib import Path
 from datetime import datetime
 from typing import List, Dict, Any
 from tqdm import tqdm
 
-# Add parent directory to path
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from processors.translation_config import TranslationConfig
 from processors.volume_manager import VolumeManager
@@ -311,8 +308,8 @@ Examples:
 
     parser.add_argument(
         '--model',
-        default='gpt-4o-mini',
-        help='OpenAI model to use (default: gpt-4o-mini)'
+        default='gpt-4.1-nano',
+        help='OpenAI model to use (default: gpt-4.1-nano)'
     )
 
     parser.add_argument(

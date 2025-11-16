@@ -68,7 +68,13 @@ class BookStructure:
 - Back matter (後記, 跋, 附錄, 尾聲)
 - Structural heuristics (TOC = ≥5 lines, 70%+ ≤15 chars)
 - **NEW**: Intro embedded in first chapter detection
-- **CRITICAL**: Inverted structure detection - "intro" that's actually Chapter 1 with real chapter inside it
+- **CRITICAL**: Inverted structure detection - "intro" that's actually the first chapter of a volume with real chapter inside it
+- **IMPLEMENTED**: See `scripts/fix_embedded_chapter1.py` for reference implementation
+- **IMPORTANT**: This pattern applies to FIRST CHAPTER OF ANY VOLUME, not just Chapter 1
+  - Volume 1: Chapter 1 ("一、...") may be embedded
+  - Volume 2: Chapter 21 ("廿一、...") may be embedded
+  - Volume 3: Chapter 41 ("卌一、...") may be embedded
+  - Script detects ANY Chinese chapter marker, not just "一、"
 
 **Inverted Structure Problem:**
 
@@ -685,7 +691,7 @@ class AntagonisticValidator:
 
 **Class**: `AIStructureValidator`
 
-**When to trigger** (gpt-4o-mini, temperature=0.1):
+**When to trigger** (gpt-4.1-nano, temperature=0.1):
 - Ambiguous chapter titles not matching regex
 - TOC entries don't map to chapter headings
 - Unclear section boundaries (front_matter/body/back_matter)
@@ -700,7 +706,7 @@ class AIStructureValidator:
 
     def __init__(self, openai_api_key: str):
         self.client = OpenAI(api_key=openai_api_key)
-        self.model = "gpt-4o-mini"
+        self.model = "gpt-4.1-nano"
         self.temperature = 0.1
 
     def classify_intro_vs_chapter(self, text: str) -> dict:

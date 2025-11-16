@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8001';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -32,7 +32,7 @@ export const jobsAPI = {
   create: async (workNumbers, config = {}) => {
     const response = await api.post('/api/jobs', {
       work_numbers: workNumbers,
-      model: config.model || 'gpt-4o-mini',
+      model: config.model || 'gpt-4.1-nano',
       temperature: config.temperature || 0.3,
       max_retries: config.max_retries || 3,
       output_dir: config.output_dir || null,
@@ -55,6 +55,22 @@ export const jobsAPI = {
   // Cancel a job
   cancel: async (jobId) => {
     const response = await api.delete(`/api/jobs/${jobId}`);
+    return response.data;
+  },
+
+  // Get detailed progress for a job's current work
+  getDetailedProgress: async (jobId) => {
+    const response = await api.get(`/api/jobs/${jobId}/progress`);
+    return response.data;
+  },
+};
+
+// Progress API
+export const progressAPI = {
+  // Get detailed progress for a work/volume
+  get: async (workNumber, volume = null) => {
+    const params = volume ? { volume } : {};
+    const response = await api.get(`/api/progress/${workNumber}`, { params });
     return response.data;
   },
 };

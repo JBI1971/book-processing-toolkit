@@ -123,8 +123,7 @@ class TestOrchestrator:
         logger.info(f"{'='*80}\n")
 
         # Import test modules
-        sys.path.insert(0, str(Path(__file__).parent.parent))
-        from processors.json_cleaner import clean_book_json
+                from processors.json_cleaner import clean_book_json
         from utils.toc_body_count_validator import validate_toc_body_alignment
 
         test_limit = limit or self.test_sample_size
@@ -364,8 +363,7 @@ class TestOrchestrator:
         logger.info(f"Testing {len(previous_passed)} previously passing files...")
 
         # Import modules
-        sys.path.insert(0, str(Path(__file__).parent.parent))
-        from processors.json_cleaner import clean_book_json
+                from processors.json_cleaner import clean_book_json
         from utils.toc_body_count_validator import validate_toc_body_alignment
 
         still_passing = 0
